@@ -1,9 +1,10 @@
 package dev.glimmer;
 
-import net.minecraft.client.gui.components.AbstractSliderButton;
-import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
+import net.minecraft.util.Mth;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -11,22 +12,37 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.DoubleConsumer;
 import java.util.function.DoubleSupplier;
+import java.util.function.IntConsumer;
+import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
-/** In-game settings menu. Opened with /glimmer. Saves automatically. */
+/**
+ * Glimmer's settings menu, drawn from scratch with smooth animations:
+ * slide/fade open and close, a sliding tab indicator, animated switches and sliders,
+ * smooth scrolling and a live color picker. Opened with /glimmer. Saves automatically.
+ */
 public class GlimmerScreen extends Screen {
-    private static int currentTab = 0;
-    private static final String[] TABS = {"General", "Particles", "Color", "Aura", "Swing", "Hit"};
-    private static final List<String> PARTICLES = new ArrayList<>();
-    static {
-        PARTICLES.add("soft_glow");
-        PARTICLES.add("sparkle");
-        PARTICLES.add("dust");
-        PARTICLES.addAll(GlimmerEffects.SIMPLE.keySet());
-    }
+    private static final String[] TABS = {"General", "Color", "Aura", "Orbit", "Trail", "Swing", "Hit", "Steps", "Weapon"};
+    private static int tab = 0;
 
-    private Button preview;
-    private Button rainbowButton;
+    private final List<Row> rows = new ArrayList<>();
+    private Row dragging;
+    private boolean closing = false;
+    private float openT = 0f;
+    private float tabT = 1f;
+    private float scroll = 0f;
+    private float scrollTarget = 0f;
+    private float indicatorY = -1f;
+    private float totalH = 0f;
+    private long lastNano = System.nanoTime();
+    private float dt = 0f;
+    private int mx, my;
+    private int accent = 0x55FFFF;
+    private final float[] tabHover = new float[TABS.length];
+
+    // layout (recomputed every frame)
+    private int px, py, pw, ph, sw, vx, vy, vw, vh, ty0;
+    private static final int TAB_H = 17;
 
     public GlimmerScreen() {
         super(Component.literal("Glimmer"));
@@ -37,273 +53,727 @@ public class GlimmerScreen extends Screen {
         build();
     }
 
-    // keep the game running so you can see your changes live behind the menu
+    // keep the game running so the effects stay visible behind the menu
     public boolean isPauseScreen() {
         return false;
     }
 
-    // saved whenever the menu closes
     public void removed() {
         GlimmerConfig.save();
     }
 
+    @Override
+    public void onClose() {
+        GlimmerConfig.save();
+        closing = true;
+    }
+
+    public void tick() {
+        if (closing && openT <= 0.001f) {
+            super.onClose();
+        }
+    }
+
+    // ------------------------------------------------------------ helpers
+
+    private static float ease(float t) {
+        float u = 1f - Mth.clamp(t, 0f, 1f);
+        return 1f - u * u * u;
+    }
+
+    private float approach(float cur, float target, float speed) {
+        return cur + (target - cur) * (1f - (float) Math.exp(-dt * speed));
+    }
+
+    private static int argb(int rgb, float alpha) {
+        int a = (int) (Mth.clamp(alpha, 0f, 1f) * 255f + 0.5f);
+        return (a << 24) | (rgb & 0xFFFFFF);
+    }
+
+    private static int mix(int a, int b, float t) {
+        t = Mth.clamp(t, 0f, 1f);
+        int r = Math.round(((a >> 16) & 255) * (1 - t) + ((b >> 16) & 255) * t);
+        int g = Math.round(((a >> 8) & 255) * (1 - t) + ((b >> 8) & 255) * t);
+        int bl = Math.round((a & 255) * (1 - t) + (b & 255) * t);
+        return (r << 16) | (g << 8) | bl;
+    }
+
+    private void text(GuiGraphicsExtractor g, String s, int x, int y, int rgb, float alpha) {
+        if (alpha < 0.06f) return; // very low alpha would be drawn opaque by the game
+        g.text(this.font, s, x, y, argb(rgb, alpha));
+    }
+
+    private static void roundRect(GuiGraphicsExtractor g, int x, int y, int w, int h, int color) {
+        g.fill(x + 1, y, x + w - 1, y + h, color);
+        g.fill(x, y + 1, x + w, y + h - 1, color);
+    }
+
+    private static float[] rgbToHsv(int rgb) {
+        float r = ((rgb >> 16) & 255) / 255f, g = ((rgb >> 8) & 255) / 255f, b = (rgb & 255) / 255f;
+        float max = Math.max(r, Math.max(g, b)), min = Math.min(r, Math.min(g, b)), d = max - min;
+        float h = 0f;
+        if (d > 1e-6f) {
+            if (max == r) h = ((g - b) / d) % 6f;
+            else if (max == g) h = (b - r) / d + 2f;
+            else h = (r - g) / d + 4f;
+            h /= 6f;
+            if (h < 0) h += 1f;
+        }
+        float s = max <= 0f ? 0f : d / max;
+        return new float[]{h, s, max};
+    }
+
+    private static int hsvToRgb(float h, float s, float v) {
+        return Mth.hsvToRgb(Mth.clamp(h, 0f, 0.9999f), Mth.clamp(s, 0f, 1f), Mth.clamp(v, 0f, 1f)) & 0xFFFFFF;
+    }
+
+    // ------------------------------------------------------------ tabs
+
+    private void select(int i) {
+        tab = i;
+        tabT = 0f;
+        scroll = 0f;
+        scrollTarget = 0f;
+        build();
+    }
+
+    private void rebuild() {
+        build();
+    }
+
     private void build() {
-        clearWidgets();
+        rows.clear();
+        dragging = null;
         GlimmerConfig c = GlimmerConfig.INSTANCE;
-        int cx = this.width / 2;
-
-        Button title = Button.builder(Component.literal("Glimmer - Visual Effects"), b -> {})
-                .bounds(cx - 100, 6, 200, 20).build();
-        title.active = false;
-        addRenderableWidget(title);
-
-        int tabW = Math.min(76, (this.width - 20) / TABS.length - 2);
-        int total = TABS.length * (tabW + 2);
-        int startX = cx - total / 2;
-        for (int i = 0; i < TABS.length; i++) {
-            final int idx = i;
-            String label = (i == currentTab) ? "[" + TABS[i] + "]" : TABS[i];
-            addRenderableWidget(Button.builder(Component.literal(label), b -> {
-                GlimmerConfig.save();
-                currentTab = idx;
-                build();
-            }).bounds(startX + i * (tabW + 2), 30, tabW, 20).build());
+        switch (tab) {
+            case 0 -> general(c);
+            case 1 -> colorTab(c);
+            case 2 -> {
+                header("Shape");
+                slider("Amount", 0, 10, false, () -> c.auraAmount, v -> c.auraAmount = v);
+                slider("Radius", 0.2, 3, false, () -> c.auraRadius, v -> c.auraRadius = v);
+                look(c.aura);
+            }
+            case 3 -> {
+                header("Shape");
+                slider("Count", 1, 12, true, () -> c.orbitCount, v -> c.orbitCount = (int) v);
+                slider("Radius", 0.3, 3, false, () -> c.orbitRadius, v -> c.orbitRadius = v);
+                slider("Speed", 0, 40, false, () -> c.orbitSpeed, v -> c.orbitSpeed = v);
+                slider("Height", 0, 2.5, false, () -> c.orbitHeight, v -> c.orbitHeight = v);
+                look(c.orbit);
+            }
+            case 4 -> {
+                header("Shape");
+                slider("Amount", 0, 10, false, () -> c.trailAmount, v -> c.trailAmount = v);
+                look(c.trail);
+            }
+            case 5 -> {
+                header("Swing");
+                toggle("In 1st person", () -> c.swingFirstPerson, v -> c.swingFirstPerson = v);
+                toggle("Empty hand + block swings", () -> c.swingEmptyHand, v -> c.swingEmptyHand = v);
+                slider("Length", 0.8, 4, false, () -> c.swingLength, v -> c.swingLength = v);
+                slider("Arc", 40, 260, false, () -> c.swingArc, v -> c.swingArc = v);
+                slider("Tilt", -90, 90, false, () -> c.swingTilt, v -> c.swingTilt = v);
+                slider("Smoothness", 1, 20, true, () -> c.swingSamples, v -> c.swingSamples = (int) v);
+                look(c.swing);
+            }
+            case 6 -> {
+                header("Shape");
+                slider("Amount", 0, 60, true, () -> c.hitCount, v -> c.hitCount = (int) v);
+                slider("Spread", 0.02, 0.6, false, () -> c.hitSpread, v -> c.hitSpread = v);
+                look(c.hit);
+            }
+            case 7 -> {
+                header("Footsteps");
+                slider("Distance between steps", 0.4, 3, false, () -> c.footInterval, v -> c.footInterval = v);
+                slider("Ring radius", 0.15, 1.5, false, () -> c.footRadius, v -> c.footRadius = v);
+                slider("Ring points", 4, 24, true, () -> c.footPoints, v -> c.footPoints = (int) v);
+                slider("Left/right offset", 0, 0.5, false, () -> c.footSide, v -> c.footSide = v);
+                look(c.foot);
+            }
+            default -> {
+                header("Weapon glow");
+                note("Soft glow around the held item.");
+                slider("Amount", 0, 8, false, () -> c.weaponAmount, v -> c.weaponAmount = v);
+                slider("Forward", 0, 1.5, false, () -> c.weaponForward, v -> c.weaponForward = v);
+                slider("Side", -1, 1, false, () -> c.weaponSide, v -> c.weaponSide = v);
+                slider("Height", -1.2, 0.5, false, () -> c.weaponHeight, v -> c.weaponHeight = v);
+                slider("Length", 0, 2, false, () -> c.weaponLength, v -> c.weaponLength = v);
+                look(c.weapon);
+            }
         }
+    }
 
-        switch (currentTab) {
-            case 0 -> generalTab(c);
-            case 1 -> particlesTab(c);
-            case 2 -> colorTab(c);
-            case 3 -> auraTab(c);
-            case 4 -> swingTab(c);
-            case 5 -> hitTab(c);
-            default -> {}
-        }
-
-        addRenderableWidget(Button.builder(Component.literal("Done"), b -> {
+    private void general(GlimmerConfig c) {
+        header("Master");
+        toggle("Effects enabled", () -> c.enabled, v -> c.enabled = v);
+        toggle("Glow (fullbright)", () -> c.glow, v -> c.glow = v);
+        toggle("Aura/orbit in 1st person", () -> c.showInFirstPerson, v -> c.showInFirstPerson = v);
+        header("ScaleMe");
+        note(ScaleMeCompat.loaded() ? "ScaleMe detected." : "ScaleMe is not installed.");
+        toggle("Follow ScaleMe swing + scale", () -> c.followScaleMe, v -> c.followScaleMe = v);
+        header("Presets");
+        rows.add(new ButtonsRow(new String[]{"Ice", "Fire", "Void", "Rainbow"}, name -> {
+            applyPreset(name);
+            rebuild();
+        }));
+        header("Menu");
+        slider("Animation speed", 0.3, 3, false, () -> c.uiSpeed, v -> c.uiSpeed = v);
+        slider("Panel opacity", 0.4, 1, false, () -> c.uiOpacity, v -> c.uiOpacity = v);
+        rows.add(new ButtonsRow(new String[]{"Reset all settings"}, name -> {
+            GlimmerConfig.INSTANCE = new GlimmerConfig();
             GlimmerConfig.save();
-            this.onClose();
-        }).bounds(cx - 100, this.height - 28, 200, 20).build());
-    }
-
-    // ---------------------------------------------------------------- tabs
-
-    private void generalTab(GlimmerConfig c) {
-        toggle(0, "Effects", () -> c.enabled, v -> c.enabled = v);
-        toggle(1, "Show in 1st person", () -> c.showInFirstPerson, v -> c.showInFirstPerson = v);
-        toggle(2, "Glow (fullbright)", () -> c.glow, v -> c.glow = v);
-        toggle(3, "Aura", () -> c.aura, v -> c.aura = v);
-        toggle(4, "Orbit", () -> c.orbit, v -> c.orbit = v);
-        toggle(5, "Move trail", () -> c.trail, v -> c.trail = v);
-        toggle(6, "Swing trail", () -> c.swing, v -> c.swing = v);
-        toggle(7, "Hit burst", () -> c.hit, v -> c.hit = v);
-
-        int cx = this.width / 2;
-        int fullW = colW() * 2 + 8;
-        int y = rowY(4) + 4;
-        int pw = fullW / 4 - 2;
-        int x0 = cx - fullW / 2;
-        preset(x0, y, pw, "Ice");
-        preset(x0 + (pw + 2), y, pw, "Fire");
-        preset(x0 + (pw + 2) * 2, y, pw, "Void");
-        preset(x0 + (pw + 2) * 3, y, pw, "Rainbow");
-    }
-
-    private void particlesTab(GlimmerConfig c) {
-        cycle(0, "Aura", () -> c.auraParticle, v -> c.auraParticle = v);
-        cycle(1, "Orbit", () -> c.orbitParticle, v -> c.orbitParticle = v);
-        cycle(2, "Move trail", () -> c.trailParticle, v -> c.trailParticle = v);
-        cycle(3, "Swing trail", () -> c.swingParticle, v -> c.swingParticle = v);
-        cycle(4, "Hit burst", () -> c.hitParticle, v -> c.hitParticle = v);
-        toggle(5, "Glow (fullbright)", () -> c.glow, v -> c.glow = v);
-        Button note = Button.builder(Component.literal("soft_glow, sparkle and dust use your color"), b -> {})
-                .bounds(this.width / 2 - colW() - 4, rowY(4) + 4, colW() * 2 + 8, 20).build();
-        note.active = false;
-        addRenderableWidget(note);
+            rebuild();
+        }));
     }
 
     private void colorTab(GlimmerConfig c) {
-        rainbowButton = toggle(0, "Rainbow", () -> c.rainbow, v -> { c.rainbow = v; updatePreview(); });
-        slider(1, "Rainbow speed", 0.1, 5, false, () -> c.rainbowSpeed, v -> c.rainbowSpeed = v);
-        slider(2, "Red", 0, 255, true, () -> (c.color >> 16) & 0xFF,
-                v -> { c.color = (c.color & 0x00FFFF) | ((int) v << 16); colorEdited(c); });
-        slider(3, "Green", 0, 255, true, () -> (c.color >> 8) & 0xFF,
-                v -> { c.color = (c.color & 0xFF00FF) | ((int) v << 8); colorEdited(c); });
-        slider(4, "Blue", 0, 255, true, () -> c.color & 0xFF,
-                v -> { c.color = (c.color & 0xFFFF00) | (int) v; colorEdited(c); });
-        slider(5, "Particle size", 0.3, 4, false, () -> c.dustSize, v -> c.dustSize = v);
-        slider(6, "Swing color spread", 0, 2, false, () -> c.swingSpread, v -> c.swingSpread = v);
-        slider(7, "Lifetime", 0.3, 3, false, () -> c.particleLife, v -> c.particleLife = v);
-
-        preview = Button.builder(Component.empty(), b -> {})
-                .bounds(this.width / 2 - colW() - 4, rowY(4) + 4, colW() * 2 + 8, 20).build();
-        preview.active = false;
-        addRenderableWidget(preview);
-        updatePreview();
+        header("Global color");
+        toggleR("Rainbow", () -> c.rainbow, v -> c.rainbow = v, this::rebuild);
+        if (c.rainbow) slider("Rainbow speed", 0.1, 5, false, () -> c.rainbowSpeed, v -> c.rainbowSpeed = v);
+        toggleR("Gradient (fade to 2nd color)", () -> c.gradient, v -> c.gradient = v, this::rebuild);
+        rows.add(new StripRow(() -> c.color, () -> c.color2, () -> c.rainbow, () -> c.gradient));
+        if (!c.rainbow) {
+            colorBlock(() -> c.color, v -> c.color = v);
+            if (c.gradient) {
+                header("Second color");
+                colorBlock(() -> c.color2, v -> c.color2 = v);
+            }
+        }
+        note("Layers use this unless they have a custom color.");
     }
 
-    private void auraTab(GlimmerConfig c) {
-        slider(0, "Aura amount", 0, 10, false, () -> c.auraDensity, v -> c.auraDensity = v);
-        slider(1, "Aura radius", 0.2, 3, false, () -> c.auraRadius, v -> c.auraRadius = v);
-        slider(2, "Orbit count", 1, 12, true, () -> c.orbitCount, v -> c.orbitCount = (int) v);
-        slider(3, "Orbit radius", 0.3, 3, false, () -> c.orbitRadius, v -> c.orbitRadius = v);
-        slider(4, "Orbit speed", 0, 40, false, () -> c.orbitSpeed, v -> c.orbitSpeed = v);
-        slider(5, "Orbit height", 0, 2.5, false, () -> c.orbitHeight, v -> c.orbitHeight = v);
-        slider(6, "Move trail amount", 0, 10, false, () -> c.trailDensity, v -> c.trailDensity = v);
-    }
-
-    private void swingTab(GlimmerConfig c) {
-        toggle(0, "Swing trail", () -> c.swing, v -> c.swing = v);
-        toggle(1, "In 1st person", () -> c.swingFirstPerson, v -> c.swingFirstPerson = v);
-        slider(2, "Length", 0.8, 4, false, () -> c.swingLength, v -> c.swingLength = v);
-        slider(3, "Arc", 40, 260, false, () -> c.swingArc, v -> c.swingArc = v);
-        slider(4, "Tilt", -90, 90, false, () -> c.swingTilt, v -> c.swingTilt = v);
-        slider(5, "Smoothness", 1, 20, true, () -> c.swingSamples, v -> c.swingSamples = (int) v);
-        slider(6, "Thickness", 0.3, 4, false, () -> c.swingSize, v -> c.swingSize = v);
-        slider(7, "Color spread", 0, 2, false, () -> c.swingSpread, v -> c.swingSpread = v);
-        slider(8, "Trail fade (ticks)", 4, 40, true, () -> c.swingLife, v -> c.swingLife = (int) v);
-    }
-
-    private void hitTab(GlimmerConfig c) {
-        toggle(0, "Hit burst", () -> c.hit, v -> c.hit = v);
-        slider(1, "Amount", 0, 60, true, () -> c.hitCount, v -> c.hitCount = (int) v);
-        slider(2, "Spread", 0.02, 0.6, false, () -> c.hitSpread, v -> c.hitSpread = v);
-    }
-
-    // ------------------------------------------------------------- helpers
-
-    private int colW() {
-        return Math.min(150, this.width / 2 - 10);
-    }
-
-    private int rowY(int row) {
-        return 58 + row * 24;
-    }
-
-    private int colX(int index) {
-        return (index % 2 == 0) ? this.width / 2 - colW() - 4 : this.width / 2 + 4;
-    }
-
-    private Button toggle(int index, String label, BooleanSupplier get, Consumer<Boolean> set) {
-        final Button[] ref = new Button[1];
-        ref[0] = Button.builder(toggleText(label, get.getAsBoolean()), b -> {
-            boolean now = !get.getAsBoolean();
-            set.accept(now);
-            ref[0].setMessage(toggleText(label, now));
-            GlimmerConfig.save();
-        }).bounds(colX(index), rowY(index / 2), colW(), 20).build();
-        return addRenderableWidget(ref[0]);
-    }
-
-    private static Component toggleText(String label, boolean on) {
-        return Component.literal(label + ": " + (on ? "ON" : "OFF"));
-    }
-
-    private Button cycle(int index, String label, Supplier<String> get, Consumer<String> set) {
-        final Button[] ref = new Button[1];
-        ref[0] = Button.builder(Component.literal(label + ": " + get.get()), b -> {
-            int i = PARTICLES.indexOf(get.get());
-            String next = PARTICLES.get((i + 1) % PARTICLES.size());
-            set.accept(next);
-            ref[0].setMessage(Component.literal(label + ": " + next));
-            GlimmerConfig.save();
-        }).bounds(colX(index), rowY(index / 2), colW(), 20).build();
-        return addRenderableWidget(ref[0]);
-    }
-
-    private Slider slider(int index, String label, double min, double max, boolean integer,
-                          DoubleSupplier get, DoubleConsumer set) {
-        return addRenderableWidget(new Slider(colX(index), rowY(index / 2), colW(), 20,
-                label, min, max, integer, get.getAsDouble(), set));
-    }
-
-    private void preset(int x, int y, int w, String name) {
-        addRenderableWidget(Button.builder(Component.literal(name), b -> {
-            applyPreset(name);
-            GlimmerConfig.save();
-            build();
-        }).bounds(x, y, w, 20).build());
+    private void look(GlimmerConfig.Layer l) {
+        header("Look");
+        toggle("Layer enabled", () -> l.on, v -> l.on = v);
+        rows.add(new CycleRow("Particle", GlimmerEffects.particleNames(), () -> l.particle, v -> l.particle = v));
+        slider("Size", 0.2, 4, false, () -> l.size, v -> l.size = v);
+        slider("Lifetime", 0.3, 3, false, () -> l.life, v -> l.life = v);
+        slider("Spin", -30, 30, false, () -> l.spin, v -> l.spin = v);
+        slider("Float up/down", -0.05, 0.05, false, () -> l.rise, v -> l.rise = v);
+        slider("Fade curve", 0.5, 3, false, () -> l.fade, v -> l.fade = v);
+        slider("Glow halo", 0, 1, false, () -> l.halo, v -> l.halo = v);
+        slider("Halo size", 1, 5, false, () -> l.haloSize, v -> l.haloSize = v);
+        header("Color");
+        toggleR("Custom color", () -> l.customColor, v -> l.customColor = v, this::rebuild);
+        if (!l.customColor) {
+            note("Using the global color.");
+            return;
+        }
+        toggleR("Rainbow", () -> l.rainbow, v -> l.rainbow = v, this::rebuild);
+        toggleR("Gradient", () -> l.gradient, v -> l.gradient = v, this::rebuild);
+        rows.add(new StripRow(() -> l.color, () -> l.color2, () -> l.rainbow, () -> l.gradient));
+        if (!l.rainbow) {
+            colorBlock(() -> l.color, v -> l.color = v);
+            if (l.gradient) {
+                header("Second color");
+                colorBlock(() -> l.color2, v -> l.color2 = v);
+            }
+        }
     }
 
     private void applyPreset(String name) {
         GlimmerConfig c = GlimmerConfig.INSTANCE;
         c.glow = true;
+        c.gradient = true;
         switch (name) {
-            case "Ice" -> {
-                c.rainbow = false; c.color = 0x55D7FF;
-                c.auraParticle = "soft_glow"; c.orbitParticle = "sparkle"; c.trailParticle = "snowflake";
-                c.swingParticle = "soft_glow"; c.hitParticle = "sparkle";
-            }
-            case "Fire" -> {
-                c.rainbow = false; c.color = 0xFF6A00;
-                c.auraParticle = "soft_glow"; c.orbitParticle = "sparkle"; c.trailParticle = "flame";
-                c.swingParticle = "soft_glow"; c.hitParticle = "sparkle";
-            }
-            case "Void" -> {
-                c.rainbow = false; c.color = 0xB44CFF;
-                c.auraParticle = "soft_glow"; c.orbitParticle = "sparkle"; c.trailParticle = "portal";
-                c.swingParticle = "soft_glow"; c.hitParticle = "electric_spark";
-            }
-            default -> {
-                c.rainbow = true;
-                c.auraParticle = "soft_glow"; c.orbitParticle = "sparkle"; c.trailParticle = "soft_glow";
-                c.swingParticle = "soft_glow"; c.hitParticle = "sparkle";
-            }
+            case "Ice" -> { c.rainbow = false; c.color = 0x55D7FF; c.color2 = 0xC9F4FF; }
+            case "Fire" -> { c.rainbow = false; c.color = 0xFF5A00; c.color2 = 0xFFD23C; }
+            case "Void" -> { c.rainbow = false; c.color = 0xB44CFF; c.color2 = 0x4C6BFF; }
+            default -> { c.rainbow = true; }
+        }
+        for (GlimmerConfig.Layer l : new GlimmerConfig.Layer[]{c.aura, c.orbit, c.trail, c.swing, c.hit, c.foot, c.weapon}) {
+            l.customColor = false;
+        }
+        GlimmerConfig.save();
+    }
+
+    // ------------------------------------------------------------ row builders
+
+    private void header(String t) {
+        rows.add(new HeaderRow(t));
+    }
+
+    private void note(String t) {
+        rows.add(new NoteRow(t));
+    }
+
+    private void toggle(String l, BooleanSupplier g, Consumer<Boolean> s) {
+        rows.add(new ToggleRow(l, g, s, null));
+    }
+
+    private void toggleR(String l, BooleanSupplier g, Consumer<Boolean> s, Runnable after) {
+        rows.add(new ToggleRow(l, g, s, after));
+    }
+
+    private void slider(String l, double min, double max, boolean integer, DoubleSupplier g, DoubleConsumer s) {
+        rows.add(new SliderRow(l, min, max, integer, g, s));
+    }
+
+    private void colorBlock(IntSupplier get, IntConsumer set) {
+        float[] hsv = rgbToHsv(get.getAsInt());
+        rows.add(new HsvRow("Hue", 0, hsv, set));
+        rows.add(new HsvRow("Saturation", 1, hsv, set));
+        rows.add(new HsvRow("Brightness", 2, hsv, set));
+    }
+
+    // ------------------------------------------------------------ rendering
+
+    private void layout() {
+        pw = Math.min(this.width - 16, 330);
+        ph = Math.min(this.height - 16, 250);
+        sw = 66;
+        float e = ease(openT);
+        px = 8 - Math.round((1f - e) * 26f);
+        py = (this.height - ph) / 2;
+        vx = px + sw + 8;
+        vw = pw - sw - 16;
+        vy = py + 26;
+        vh = ph - 32;
+        ty0 = py + 34;
+    }
+
+    @Override
+    public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float delta) {
+        GlimmerConfig cfg = GlimmerConfig.INSTANCE;
+        this.mx = mouseX;
+        this.my = mouseY;
+        long now = System.nanoTime();
+        dt = Math.min(0.1f, (now - lastNano) / 1.0e9f) * (float) cfg.uiSpeed;
+        lastNano = now;
+
+        openT = Mth.clamp(openT + (closing ? -dt : dt) / 0.24f, 0f, 1f);
+        tabT = Math.min(1f, tabT + dt / 0.26f);
+        float e = ease(openT);
+        accent = GlimmerEffects.accentColor();
+        layout();
+
+        // panel
+        g.fill(px - 1, py - 1, px + pw + 1, py + ph + 1, argb(accent, 0.30f * e));
+        g.fill(px, py, px + pw, py + ph, argb(0x0D0F16, (float) cfg.uiOpacity * e));
+        g.fill(px, py, px + sw, py + ph, argb(0x05060A, 0.55f * e));
+        g.fill(px, py, px + pw, py + 2, argb(accent, e));
+        text(g, "GLIMMER", px + 9, py + 9, accent, e);
+        text(g, "visual effects", px + 9, py + 20, 0x6F768A, e);
+        text(g, "ESC to close", px + 9, py + ph - 14, 0x4F566A, e);
+
+        // tabs
+        float targetY = ty0 + tab * TAB_H;
+        if (indicatorY < 0f) indicatorY = targetY;
+        indicatorY = approach(indicatorY, targetY, 16f);
+        int iy = Math.round(indicatorY);
+        g.fill(px + 2, iy, px + sw, iy + TAB_H - 2, argb(accent, 0.16f * e));
+        g.fill(px, iy, px + 2, iy + TAB_H - 2, argb(accent, e));
+        for (int i = 0; i < TABS.length; i++) {
+            int ty = ty0 + i * TAB_H;
+            boolean hov = mx >= px && mx < px + sw && my >= ty && my < ty + TAB_H - 2;
+            tabHover[i] = approach(tabHover[i], hov ? 1f : 0f, 14f);
+            if (i != tab) g.fill(px + 2, ty, px + sw, ty + TAB_H - 2, argb(0xFFFFFF, 0.06f * tabHover[i] * e));
+            float lit = i == tab ? 1f : tabHover[i];
+            int tx = px + 10 + Math.round(lit * 2f);
+            text(g, TABS[i], tx, ty + 4, mix(0x8A91A3, 0xFFFFFF, lit), e);
+        }
+
+        // content header
+        text(g, TABS[tab].toUpperCase(), vx, py + 9, 0xFFFFFF, e);
+        g.fill(vx, py + 21, vx + vw, py + 22, argb(0xFFFFFF, 0.08f * e));
+
+        // content
+        float ce = ease(tabT);
+        float ca = e * ce;
+        int xoff = Math.round((1f - ce) * 18f);
+        float maxScroll = Math.max(0f, totalH - vh);
+        scrollTarget = Mth.clamp(scrollTarget, 0f, maxScroll);
+        scroll = approach(scroll, scrollTarget, 16f);
+        if (dragging != null) dragging.drag(mx);
+
+        g.enableScissor(vx - 2, vy, vx + vw + 2, vy + vh);
+        float yy = vy - scroll + 2f;
+        for (Row r : rows) {
+            r.x = vx + xoff;
+            r.y = Math.round(yy);
+            r.w = vw - 7;
+            if (r.y + r.h > vy && r.y < vy + vh) r.draw(g, ca);
+            yy += r.h + 3f;
+        }
+        g.disableScissor();
+        totalH = yy + scroll - vy;
+
+        // scrollbar
+        if (totalH > vh + 1f) {
+            float frac = vh / totalH;
+            int barH = Math.max(14, Math.round(vh * frac));
+            int barY = vy + Math.round((vh - barH) * (scroll / Math.max(1f, totalH - vh)));
+            g.fill(px + pw - 5, vy, px + pw - 3, vy + vh, argb(0xFFFFFF, 0.05f * e));
+            g.fill(px + pw - 5, barY, px + pw - 3, barY + barH, argb(accent, 0.7f * e));
         }
     }
 
-    private void colorEdited(GlimmerConfig c) {
-        c.rainbow = false;
-        if (rainbowButton != null) rainbowButton.setMessage(toggleText("Rainbow", false));
-        updatePreview();
+    // ------------------------------------------------------------ input
+
+    @Override
+    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        if (closing) return true;
+        for (int i = 0; i < TABS.length; i++) {
+            int ty = ty0 + i * TAB_H;
+            if (mx >= px && mx < px + sw && my >= ty && my < ty + TAB_H - 2) {
+                if (i != tab) select(i);
+                return true;
+            }
+        }
+        if (mx >= vx - 2 && mx < vx + vw + 2 && my >= vy && my < vy + vh) {
+            for (Row r : rows) {
+                if (r.hot()) {
+                    r.click();
+                    if (r.draggable()) dragging = r;
+                    return true;
+                }
+            }
+        }
+        return mx >= px && mx < px + pw && my >= py && my < py + ph;
     }
 
-    private void updatePreview() {
-        if (preview == null) return;
-        GlimmerConfig c = GlimmerConfig.INSTANCE;
-        int rgb = c.color & 0xFFFFFF;
-        String text = c.rainbow ? "Rainbow mode is on (turn off to use this color)" : "Color preview  ########";
-        preview.setMessage(Component.literal(text).withStyle(s -> s.withColor(rgb)));
+    @Override
+    public boolean mouseReleased(MouseButtonEvent event) {
+        boolean was = dragging != null;
+        dragging = null;
+        if (was) GlimmerConfig.save();
+        return was;
     }
 
-    /** A slider that reads/writes one config value. */
-    private static class Slider extends AbstractSliderButton {
+    @Override
+    public boolean mouseDragged(MouseButtonEvent event, double dx, double dy) {
+        return dragging != null;
+    }
+
+    @Override
+    public boolean mouseScrolled(double x, double y, double scrollX, double scrollY) {
+        scrollTarget -= (float) scrollY * 26f;
+        return true;
+    }
+
+    // ------------------------------------------------------------ rows
+
+    private abstract class Row {
+        int x, y, w, h;
+        float hover;
+
+        Row(int h) {
+            this.h = h;
+        }
+
+        boolean hot() {
+            return mx >= x && mx < x + w && my >= y && my < y + h && my >= vy && my < vy + vh;
+        }
+
+        void updateHover() {
+            boolean on = dragging == this || (dragging == null && hot());
+            hover = approach(hover, on ? 1f : 0f, 16f);
+        }
+
+        void background(GuiGraphicsExtractor g, float a) {
+            g.fill(x, y, x + w, y + h, argb(0xFFFFFF, 0.05f * hover * a));
+        }
+
+        abstract void draw(GuiGraphicsExtractor g, float a);
+
+        boolean draggable() {
+            return false;
+        }
+
+        void click() {}
+
+        void drag(int mouseX) {}
+    }
+
+    private final class HeaderRow extends Row {
         private final String label;
-        private final double min;
-        private final double max;
-        private final boolean integer;
-        private final DoubleConsumer set;
 
-        Slider(int x, int y, int w, int h, String label, double min, double max, boolean integer,
-               double initial, DoubleConsumer set) {
-            super(x, y, w, h, Component.empty(), (clamp(initial, min, max) - min) / (max - min));
+        HeaderRow(String label) {
+            super(18);
+            this.label = label;
+        }
+
+        @Override
+        void draw(GuiGraphicsExtractor g, float a) {
+            text(g, label.toUpperCase(), x + 2, y + 6, accent, a * 0.9f);
+            g.fill(x, y + 16, x + w, y + 17, argb(0xFFFFFF, 0.06f * a));
+        }
+    }
+
+    private final class NoteRow extends Row {
+        private final String label;
+
+        NoteRow(String label) {
+            super(14);
+            this.label = label;
+        }
+
+        @Override
+        void draw(GuiGraphicsExtractor g, float a) {
+            text(g, label, x + 6, y + 3, 0x6F768A, a);
+        }
+    }
+
+    private final class ToggleRow extends Row {
+        private final String label;
+        private final BooleanSupplier get;
+        private final Consumer<Boolean> set;
+        private final Runnable after;
+        private float t = -1f;
+
+        ToggleRow(String label, BooleanSupplier get, Consumer<Boolean> set, Runnable after) {
+            super(20);
+            this.label = label;
+            this.get = get;
+            this.set = set;
+            this.after = after;
+        }
+
+        @Override
+        void draw(GuiGraphicsExtractor g, float a) {
+            updateHover();
+            background(g, a);
+            boolean on = get.getAsBoolean();
+            if (t < 0f) t = on ? 1f : 0f;
+            t = approach(t, on ? 1f : 0f, 18f);
+            text(g, label, x + 6, y + (h - 9) / 2, 0xE6E9F2, a);
+            int trackW = 26, trackH = 12;
+            int sx = x + w - trackW - 6, sy = y + (h - trackH) / 2;
+            roundRect(g, sx, sy, trackW, trackH, argb(mix(0x3A3F4B, accent, t), a));
+            int kx = sx + 1 + Math.round(t * (trackW - trackH));
+            roundRect(g, kx, sy + 1, trackH - 2, trackH - 2, argb(0xFFFFFF, a));
+        }
+
+        @Override
+        void click() {
+            set.accept(!get.getAsBoolean());
+            GlimmerConfig.save();
+            if (after != null) after.run();
+        }
+    }
+
+    private final class SliderRow extends Row {
+        private final String label;
+        private final double min, max;
+        private final boolean integer;
+        private final DoubleSupplier get;
+        private final DoubleConsumer set;
+        private float disp = -1f;
+
+        SliderRow(String label, double min, double max, boolean integer, DoubleSupplier get, DoubleConsumer set) {
+            super(26);
             this.label = label;
             this.min = min;
             this.max = max;
             this.integer = integer;
+            this.get = get;
             this.set = set;
-            updateMessage();
         }
 
-        private static double clamp(double v, double lo, double hi) {
-            return Math.max(lo, Math.min(hi, v));
-        }
-
-        private double current() {
-            double v = min + this.value * (max - min);
-            return integer ? Math.round(v) : v;
+        private String fmt(double v) {
+            if (integer) return String.valueOf(Math.round(v));
+            return String.format(Math.abs(max - min) < 0.2 ? "%.3f" : "%.2f", v);
         }
 
         @Override
-        protected void updateMessage() {
-            double v = current();
-            String s = integer ? String.valueOf((long) v) : String.format("%.2f", v);
-            setMessage(Component.literal(label + ": " + s));
+        void draw(GuiGraphicsExtractor g, float a) {
+            updateHover();
+            background(g, a);
+            double v = get.getAsDouble();
+            float n = (float) Mth.clamp((v - min) / (max - min), 0.0, 1.0);
+            if (disp < 0f) disp = n;
+            disp = approach(disp, n, 22f);
+            text(g, label, x + 6, y + 3, 0xE6E9F2, a);
+            String s = fmt(v);
+            text(g, s, x + w - 6 - font.width(s), y + 3, mix(0x8A91A3, accent, hover), a);
+            int tx = x + 6, tw = w - 12, ty = y + 17;
+            g.fill(tx, ty, tx + tw, ty + 4, argb(0x2A2E3A, a));
+            int fillW = Math.round(disp * tw);
+            g.fill(tx, ty, tx + fillW, ty + 4, argb(accent, a));
+            int kh = 8 + Math.round(hover * 2f);
+            int kx = tx + fillW;
+            g.fill(kx - 2, ty + 2 - kh / 2, kx + 2, ty + 2 + kh / 2, argb(0xFFFFFF, a));
         }
 
         @Override
-        protected void applyValue() {
-            set.accept(current());
+        boolean draggable() {
+            return true;
+        }
+
+        @Override
+        void click() {
+            drag(mx);
+        }
+
+        @Override
+        void drag(int mouseX) {
+            double n = Mth.clamp((mouseX - (x + 6)) / (double) (w - 12), 0.0, 1.0);
+            double v = min + n * (max - min);
+            if (integer) v = Math.round(v);
+            set.accept(v);
+        }
+    }
+
+    private final class CycleRow extends Row {
+        private final String label;
+        private final List<String> options;
+        private final Supplier<String> get;
+        private final Consumer<String> set;
+        private int ctrlX, ctrlW;
+
+        CycleRow(String label, List<String> options, Supplier<String> get, Consumer<String> set) {
+            super(20);
+            this.label = label;
+            this.options = options;
+            this.get = get;
+            this.set = set;
+        }
+
+        @Override
+        void draw(GuiGraphicsExtractor g, float a) {
+            updateHover();
+            background(g, a);
+            text(g, label, x + 6, y + (h - 9) / 2, 0xE6E9F2, a);
+            ctrlW = 112;
+            ctrlX = x + w - ctrlW - 6;
+            roundRect(g, ctrlX, y + 2, ctrlW, h - 4, argb(0x1A1D27, a));
+            if (hot() && mx >= ctrlX && mx < ctrlX + ctrlW) {
+                boolean left = mx < ctrlX + ctrlW / 2;
+                int hx = left ? ctrlX : ctrlX + ctrlW / 2;
+                g.fill(hx, y + 3, hx + ctrlW / 2, y + h - 3, argb(0xFFFFFF, 0.08f * a));
+            }
+            String v = get.get().replace('_', ' ');
+            text(g, v, ctrlX + (ctrlW - font.width(v)) / 2, y + (h - 9) / 2, accent, a);
+            text(g, "<", ctrlX + 5, y + (h - 9) / 2, 0x8A91A3, a);
+            text(g, ">", ctrlX + ctrlW - 5 - font.width(">"), y + (h - 9) / 2, 0x8A91A3, a);
+        }
+
+        @Override
+        void click() {
+            int idx = options.indexOf(get.get());
+            if (idx < 0) idx = 0;
+            idx += (mx < ctrlX + ctrlW / 2) ? -1 : 1;
+            idx = (idx + options.size()) % options.size();
+            set.accept(options.get(idx));
+            GlimmerConfig.save();
+        }
+    }
+
+    private final class ButtonsRow extends Row {
+        private final String[] labels;
+        private final Consumer<String> action;
+        private final float[] hov;
+
+        ButtonsRow(String[] labels, Consumer<String> action) {
+            super(20);
+            this.labels = labels;
+            this.action = action;
+            this.hov = new float[labels.length];
+        }
+
+        private int cell(int mouseX) {
+            int cw = (w - 12) / labels.length;
+            return Mth.clamp((mouseX - (x + 6)) / Math.max(1, cw), 0, labels.length - 1);
+        }
+
+        @Override
+        void draw(GuiGraphicsExtractor g, float a) {
+            int cw = (w - 12) / labels.length;
+            for (int i = 0; i < labels.length; i++) {
+                int cx = x + 6 + i * cw;
+                boolean on = hot() && cell(mx) == i;
+                hov[i] = approach(hov[i], on ? 1f : 0f, 16f);
+                roundRect(g, cx + 1, y + 1, cw - 2, h - 2, argb(mix(0x1A1D27, accent, hov[i] * 0.45f), a));
+                text(g, labels[i], cx + (cw - font.width(labels[i])) / 2, y + (h - 9) / 2,
+                        mix(0xC9CEDB, 0xFFFFFF, hov[i]), a);
+            }
+        }
+
+        @Override
+        void click() {
+            action.accept(labels[cell(mx)]);
+        }
+    }
+
+    private final class StripRow extends Row {
+        private final IntSupplier c1, c2;
+        private final BooleanSupplier rainbow, gradient;
+
+        StripRow(IntSupplier c1, IntSupplier c2, BooleanSupplier rainbow, BooleanSupplier gradient) {
+            super(12);
+            this.c1 = c1;
+            this.c2 = c2;
+            this.rainbow = rainbow;
+            this.gradient = gradient;
+        }
+
+        @Override
+        void draw(GuiGraphicsExtractor g, float a) {
+            int tw = w - 12;
+            for (int i = 0; i < tw; i++) {
+                float f = i / (float) Math.max(1, tw - 1);
+                int col;
+                if (rainbow.getAsBoolean()) col = hsvToRgb(f, 0.85f, 1f);
+                else if (gradient.getAsBoolean()) col = mix(c1.getAsInt(), c2.getAsInt(), f);
+                else col = c1.getAsInt();
+                g.fill(x + 6 + i, y + 1, x + 7 + i, y + h - 1, argb(col, a));
+            }
+        }
+    }
+
+    private final class HsvRow extends Row {
+        private final String label;
+        private final int mode;
+        private final float[] hsv;
+        private final IntConsumer set;
+        private float disp = -1f;
+
+        HsvRow(String label, int mode, float[] hsv, IntConsumer set) {
+            super(24);
+            this.label = label;
+            this.mode = mode;
+            this.hsv = hsv;
+            this.set = set;
+        }
+
+        @Override
+        void draw(GuiGraphicsExtractor g, float a) {
+            updateHover();
+            background(g, a);
+            if (disp < 0f) disp = hsv[mode];
+            disp = approach(disp, hsv[mode], 22f);
+            text(g, label, x + 6, y + 2, 0xE6E9F2, a);
+            String s = mode == 0 ? String.valueOf(Math.round(hsv[0] * 360f)) : Math.round(hsv[mode] * 100f) + "%";
+            text(g, s, x + w - 6 - font.width(s), y + 2, mix(0x8A91A3, accent, hover), a);
+            int tx = x + 6, tw = w - 12, ty = y + 13, th = 6;
+            for (int i = 0; i < tw; i++) {
+                float f = i / (float) Math.max(1, tw - 1);
+                int col = mode == 0 ? hsvToRgb(f, 1f, 1f)
+                        : mode == 1 ? hsvToRgb(hsv[0], f, hsv[2])
+                        : hsvToRgb(hsv[0], hsv[1], f);
+                g.fill(tx + i, ty, tx + i + 1, ty + th, argb(col, a));
+            }
+            int kx = tx + Math.round(disp * (tw - 1));
+            g.fill(kx - 2, ty - 2, kx + 3, ty + th + 2, argb(0xFFFFFF, a));
+            g.fill(kx - 1, ty - 1, kx + 2, ty + th + 1, argb(hsvToRgb(hsv[0], hsv[1], hsv[2]), a));
+        }
+
+        @Override
+        boolean draggable() {
+            return true;
+        }
+
+        @Override
+        void click() {
+            drag(mx);
+        }
+
+        @Override
+        void drag(int mouseX) {
+            float n = (float) Mth.clamp((mouseX - (x + 6)) / (double) Math.max(1, w - 13), 0.0, 1.0);
+            hsv[mode] = n;
+            set.accept(hsvToRgb(hsv[0], hsv[1], hsv[2]));
         }
     }
 }

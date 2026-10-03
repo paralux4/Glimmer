@@ -1,16 +1,16 @@
 # Glimmer (Fabric, Minecraft 26.2)
 
-Client-side cosmetic effects. No cheats: it only spawns vanilla particles locally and never touches
-packets, combat, movement, hitboxes or reach. Safe to use on servers like Hypixel in principle, but
-check the server's own mod rules if you're unsure.
+Client-side cosmetic effects. No cheats: it only spawns particles locally and never touches
+packets, combat, movement, hitboxes or reach.
 
-Layers: aura, orbiting sparks, movement trail, hit burst. Everything is adjustable live with `/glimmer`
-(run it alone for the command list) and saved to `config/glimmer.json`.
+Layers: aura, orbiting sparks, movement trail, swing trail (weapons, hand and block swings),
+hit burst, footstep rings, weapon glow. Run `/glimmer` in game to open the animated settings menu.
+Settings save to `config/glimmer-v3.json`.
+
+ScaleMe is supported: the swing trail follows ScaleMe's swing speed, arc size, item scale and
+"disable swing" option.
 
 ## Build
 Needs JDK 25 and Gradle 9.3+:
 
     gradle build
-
-Jar ends up in `build/libs/glimmer-1.0.0+26.2.jar`. Or push to GitHub and download the jar from the
-Actions tab (workflow included).
