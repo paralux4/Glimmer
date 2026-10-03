@@ -1,51 +1,65 @@
 package dev.glimmer;
 
-import com.mojang.brigadier.CommandDispatcher;
-import com.mojang.brigadier.builder.LiteralArgumentBuilder;
-import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
-import net.minecraft.network.chat.Component;
+import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.world.InteractionResult;
 
-/** /glimmer opens the settings menu. Extra: toggle, reset, reload. */
-public final class GlimmerCommands {
-    private GlimmerCommands() {}
+import java.lang.reflect.Method;
 
-    private static LiteralArgumentBuilder<FabricClientCommandSource> literal(String name) {
-        return LiteralArgumentBuilder.literal(name);
-    }
+public class GlimmerClient implements ClientModInitializer {
+    /** Set by /glimmer; the menu opens on the next tick (after the chat screen has closed). */
+    public static volatile boolean openMenu = false;
 
-    public static void register(CommandDispatcher<FabricClientCommandSource> d) {
-        var root = literal("glimmer");
+    @Override
+    public void onInitializeClient() {
+        GlimmerConfig.load();
 
-        root.then(literal("toggle").executes(ctx -> {
-            var c = GlimmerConfig.INSTANCE;
-            c.enabled = !c.enabled;
-            GlimmerConfig.save();
-            say(ctx.getSource(), "Glimmer " + (c.enabled ? "on" : "off"));
-            return 1;
-        }));
-
-        root.then(literal("reset").executes(ctx -> {
-            GlimmerConfig.INSTANCE = new GlimmerConfig();
-            GlimmerConfig.save();
-            say(ctx.getSource(), "Settings reset to defaults");
-            return 1;
-        }));
-
-        root.then(literal("reload").executes(ctx -> {
-            GlimmerConfig.load();
-            say(ctx.getSource(), "Config reloaded");
-            return 1;
-        }));
-
-        root.executes(ctx -> {
-            GlimmerClient.openMenu = true;
-            return 1;
+        ClientTickEvents.END_CLIENT_TICK.register(mc -> {
+            if (openMenu) {
+                openMenu = false;
+                openScreen(mc, new GlimmerScreen());
+            }
+            GlimmerEffects.tick(mc);
         });
 
-        d.register(root);
+        // Purely cosmetic: always PASS so the attack itself is untouched.
+        AttackEntityCallback.EVENT.register((player, level, hand, entity, hit) -> {
+            if (level.isClientSide() && player == Minecraft.getInstance().player) {
+                GlimmerEffects.hitBurst(entity);
+            }
+            return InteractionResult.PASS;
+        });
+
+        ClientCommandRegistrationCallback.EVENT.register(
+                (dispatcher, registryAccess) -> GlimmerCommands.register(dispatcher));
     }
 
-    private static void say(FabricClientCommandSource s, String msg) {
-        s.sendFeedback(Component.literal("[Glimmer] " + msg));
+    /** Opens a screen without hard-coding the method name, which changed in 26.x. */
+    private static void openScreen(Minecraft mc, Screen screen) {
+        try {
+            for (String name : new String[]{"setScreen", "setScreenAndShow"}) {
+                for (Method m : Minecraft.class.getMethods()) {
+                    if (m.getName().equals(name) && m.getParameterCount() == 1
+                            && m.getParameterTypes()[0].isAssignableFrom(screen.getClass())) {
+                        m.invoke(mc, screen);
+                        return;
+                    }
+                }
+            }
+            for (Method m : Minecraft.class.getMethods()) {
+                if (m.getParameterCount() == 1 && m.getReturnType() == void.class
+                        && m.getParameterTypes()[0] == Screen.class) {
+                    m.invoke(mc, screen);
+                    return;
+                }
+            }
+            System.err.println("[Glimmer] Could not find a method to open the menu.");
+        } catch (Exception e) {
+            System.err.println("[Glimmer] Could not open the menu: " + e);
+        }
     }
 }
