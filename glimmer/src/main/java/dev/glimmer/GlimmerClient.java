@@ -17,6 +17,7 @@ public class GlimmerClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         GlimmerConfig.load();
+        GlimmerParticles.register();
 
         ClientTickEvents.END_CLIENT_TICK.register(mc -> {
             if (openMenu) {

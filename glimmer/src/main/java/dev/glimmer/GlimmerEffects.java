@@ -14,13 +14,13 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Spawns vanilla particles on the local client only. Nothing here touches
+ * Spawns particles on the local client only. Nothing here touches
  * the server, packets, hitboxes, reach, or any gameplay value.
  */
 public final class GlimmerEffects {
     private GlimmerEffects() {}
 
-    /** True only while Glimmer is spawning a particle; the mixin reads this to make it fullbright. */
+    /** True only while Glimmer is spawning a vanilla particle; the mixin reads this to make it fullbright. */
     public static volatile boolean spawning = false;
 
     public static final Map<String, ParticleOptions> SIMPLE = new LinkedHashMap<>();
@@ -45,6 +45,10 @@ public final class GlimmerEffects {
     private static int tick = 0;
     private static double lastSwing = 0;
 
+    public static boolean isCustom(String name) {
+        return name.equals("soft_glow") || name.equals("sparkle");
+    }
+
     public static ParticleOptions resolve(String name, int color, float size) {
         if (name.equals("dust")) return new DustParticleOptions(color, size);
         ParticleOptions p = SIMPLE.get(name);
@@ -59,13 +63,30 @@ public final class GlimmerEffects {
         return Mth.hsvToRgb(hue, 0.85f, 1.0f) & 0xFFFFFF;
     }
 
-    private static void add(Level level, ParticleOptions o, double x, double y, double z,
-                            double dx, double dy, double dz) {
+    private static void addVanilla(Level level, ParticleOptions o, double x, double y, double z,
+                                   double dx, double dy, double dz) {
         spawning = GlimmerConfig.INSTANCE.glow;
         try {
             level.addParticle(o, x, y, z, dx, dy, dz);
         } finally {
             spawning = false;
+        }
+    }
+
+    /**
+     * Spawns one particle of whatever type the layer is set to.
+     * life = lifetime in ticks (Glimmer particles only), friction = how fast motion dies off.
+     */
+    private static void emit(Level level, String name, double x, double y, double z,
+                             double dx, double dy, double dz, int rgb, float size, int life, float friction) {
+        GlimmerConfig c = GlimmerConfig.INSTANCE;
+        if (isCustom(name)) {
+            int l = Math.max(2, Math.round(life * (float) c.particleLife));
+            GlimmerParticles.spawn(level,
+                    name.equals("sparkle") ? GlimmerParticles.SPARKLE : GlimmerParticles.GLOW,
+                    x, y, z, rgb, size, l, dx, dy, dz, friction);
+        } else {
+            addVanilla(level, resolve(name, rgb, size), x, y, z, dx, dy, dz);
         }
     }
 
@@ -90,11 +111,13 @@ public final class GlimmerEffects {
         var rnd = p.getRandom();
         int n = whole(c.auraDensity, rnd.nextDouble());
         for (int i = 0; i < n; i++) {
-            ParticleOptions opt = resolve(c.auraParticle, currentColor(rnd.nextFloat() * 0.3f), (float) c.dustSize);
             double a = rnd.nextDouble() * Math.PI * 2;
             double r = c.auraRadius * (0.6 + rnd.nextDouble() * 0.4);
             double y = p.getY() + rnd.nextDouble() * p.getBbHeight();
-            add(p.level(), opt, p.getX() + Math.cos(a) * r, y, p.getZ() + Math.sin(a) * r, 0, 0.01, 0);
+            emit(p.level(), c.auraParticle,
+                    p.getX() + Math.cos(a) * r, y, p.getZ() + Math.sin(a) * r,
+                    0, isCustom(c.auraParticle) ? 0.012 + rnd.nextDouble() * 0.012 : 0.01, 0,
+                    currentColor(rnd.nextFloat() * 0.3f), (float) c.dustSize, 36, 0.995f);
         }
     }
 
@@ -105,8 +128,8 @@ public final class GlimmerEffects {
             double x = p.getX() + Math.cos(a) * c.orbitRadius;
             double z = p.getZ() + Math.sin(a) * c.orbitRadius;
             double y = p.getY() + c.orbitHeight + Math.sin(tick * 0.1 + i) * 0.15;
-            ParticleOptions o = resolve(c.orbitParticle, currentColor(i / (float) count * 0.5f), (float) c.dustSize);
-            add(p.level(), o, x, y, z, 0, 0, 0);
+            emit(p.level(), c.orbitParticle, x, y, z, 0, 0, 0,
+                    currentColor(i / (float) count * 0.5f), (float) c.dustSize * 1.1f, 10, 1.0f);
         }
     }
 
@@ -116,13 +139,12 @@ public final class GlimmerEffects {
         var rnd = p.getRandom();
         int n = whole(c.trailDensity, rnd.nextDouble());
         for (int i = 0; i < n; i++) {
-            ParticleOptions opt = resolve(c.trailParticle, currentColor(0f), (float) c.dustSize);
             double t = rnd.nextDouble();
-            add(p.level(), opt,
+            emit(p.level(), c.trailParticle,
                     p.getX() - v.x * t * 2 + (rnd.nextDouble() - 0.5) * 0.3,
                     p.getY() + 0.1 + rnd.nextDouble() * 0.2,
                     p.getZ() - v.z * t * 2 + (rnd.nextDouble() - 0.5) * 0.3,
-                    0, 0.01, 0);
+                    0, 0.01, 0, currentColor(0f), (float) c.dustSize, 22, 0.97f);
         }
     }
 
@@ -139,13 +161,12 @@ public final class GlimmerEffects {
         for (int i = 1; i <= n; i++) {
             double t = from + (cur - from) * i / n;
             Vec3 pos = swingPoint(p, t, c);
-            ParticleOptions o = resolve(c.swingParticle,
-                    currentColor((float) (t * c.swingSpread)), (float) c.swingSize);
-            add(p.level(), o,
+            emit(p.level(), c.swingParticle,
                     pos.x + (rnd.nextDouble() - 0.5) * 0.04,
                     pos.y + (rnd.nextDouble() - 0.5) * 0.04,
                     pos.z + (rnd.nextDouble() - 0.5) * 0.04,
-                    0, 0, 0);
+                    0, 0, 0,
+                    currentColor((float) (t * c.swingSpread)), (float) c.swingSize, c.swingLife, 1.0f);
         }
         lastSwing = cur;
     }
@@ -177,12 +198,13 @@ public final class GlimmerEffects {
         if (!c.enabled || !c.hit) return;
         var rnd = target.level().getRandom();
         double cy = target.getY() + target.getBbHeight() * 0.5;
+        double k = isCustom(c.hitParticle) ? 0.35 : 1.0;
         for (int i = 0; i < c.hitCount; i++) {
-            ParticleOptions opt = resolve(c.hitParticle, currentColor(rnd.nextFloat() * 0.4f), (float) c.dustSize);
-            double dx = (rnd.nextDouble() - 0.5) * 2 * c.hitSpread * 4;
-            double dy = (rnd.nextDouble() - 0.5) * 2 * c.hitSpread * 4;
-            double dz = (rnd.nextDouble() - 0.5) * 2 * c.hitSpread * 4;
-            add(target.level(), opt, target.getX(), cy, target.getZ(), dx, dy, dz);
+            double dx = (rnd.nextDouble() - 0.5) * 2 * c.hitSpread * 4 * k;
+            double dy = (rnd.nextDouble() - 0.5) * 2 * c.hitSpread * 4 * k;
+            double dz = (rnd.nextDouble() - 0.5) * 2 * c.hitSpread * 4 * k;
+            emit(target.level(), c.hitParticle, target.getX(), cy, target.getZ(),
+                    dx, dy, dz, currentColor(rnd.nextFloat() * 0.4f), (float) c.dustSize, 16, 0.86f);
         }
     }
 

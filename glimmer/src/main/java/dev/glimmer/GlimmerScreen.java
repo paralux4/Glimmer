@@ -19,6 +19,8 @@ public class GlimmerScreen extends Screen {
     private static final String[] TABS = {"General", "Particles", "Color", "Aura", "Swing", "Hit"};
     private static final List<String> PARTICLES = new ArrayList<>();
     static {
+        PARTICLES.add("soft_glow");
+        PARTICLES.add("sparkle");
         PARTICLES.add("dust");
         PARTICLES.addAll(GlimmerEffects.SIMPLE.keySet());
     }
@@ -114,7 +116,7 @@ public class GlimmerScreen extends Screen {
         cycle(3, "Swing trail", () -> c.swingParticle, v -> c.swingParticle = v);
         cycle(4, "Hit burst", () -> c.hitParticle, v -> c.hitParticle = v);
         toggle(5, "Glow (fullbright)", () -> c.glow, v -> c.glow = v);
-        Button note = Button.builder(Component.literal("Only 'dust' uses your custom color"), b -> {})
+        Button note = Button.builder(Component.literal("soft_glow, sparkle and dust use your color"), b -> {})
                 .bounds(this.width / 2 - colW() - 4, rowY(4) + 4, colW() * 2 + 8, 20).build();
         note.active = false;
         addRenderableWidget(note);
@@ -131,6 +133,7 @@ public class GlimmerScreen extends Screen {
                 v -> { c.color = (c.color & 0xFFFF00) | (int) v; colorEdited(c); });
         slider(5, "Particle size", 0.3, 4, false, () -> c.dustSize, v -> c.dustSize = v);
         slider(6, "Swing color spread", 0, 2, false, () -> c.swingSpread, v -> c.swingSpread = v);
+        slider(7, "Lifetime", 0.3, 3, false, () -> c.particleLife, v -> c.particleLife = v);
 
         preview = Button.builder(Component.empty(), b -> {})
                 .bounds(this.width / 2 - colW() - 4, rowY(4) + 4, colW() * 2 + 8, 20).build();
@@ -158,6 +161,7 @@ public class GlimmerScreen extends Screen {
         slider(5, "Smoothness", 1, 20, true, () -> c.swingSamples, v -> c.swingSamples = (int) v);
         slider(6, "Thickness", 0.3, 4, false, () -> c.swingSize, v -> c.swingSize = v);
         slider(7, "Color spread", 0, 2, false, () -> c.swingSpread, v -> c.swingSpread = v);
+        slider(8, "Trail fade (ticks)", 4, 40, true, () -> c.swingLife, v -> c.swingLife = (int) v);
     }
 
     private void hitTab(GlimmerConfig c) {
@@ -227,23 +231,23 @@ public class GlimmerScreen extends Screen {
         switch (name) {
             case "Ice" -> {
                 c.rainbow = false; c.color = 0x55D7FF;
-                c.auraParticle = "glow"; c.orbitParticle = "dust"; c.trailParticle = "snowflake";
-                c.swingParticle = "dust"; c.hitParticle = "enchanted_hit";
+                c.auraParticle = "soft_glow"; c.orbitParticle = "sparkle"; c.trailParticle = "snowflake";
+                c.swingParticle = "soft_glow"; c.hitParticle = "sparkle";
             }
             case "Fire" -> {
                 c.rainbow = false; c.color = 0xFF6A00;
-                c.auraParticle = "flame"; c.orbitParticle = "dust"; c.trailParticle = "flame";
-                c.swingParticle = "dust"; c.hitParticle = "crit";
+                c.auraParticle = "soft_glow"; c.orbitParticle = "sparkle"; c.trailParticle = "flame";
+                c.swingParticle = "soft_glow"; c.hitParticle = "sparkle";
             }
             case "Void" -> {
                 c.rainbow = false; c.color = 0xB44CFF;
-                c.auraParticle = "portal"; c.orbitParticle = "dust"; c.trailParticle = "witch";
-                c.swingParticle = "dust"; c.hitParticle = "electric_spark";
+                c.auraParticle = "soft_glow"; c.orbitParticle = "sparkle"; c.trailParticle = "portal";
+                c.swingParticle = "soft_glow"; c.hitParticle = "electric_spark";
             }
             default -> {
                 c.rainbow = true;
-                c.auraParticle = "glow"; c.orbitParticle = "dust"; c.trailParticle = "end_rod";
-                c.swingParticle = "dust"; c.hitParticle = "enchanted_hit";
+                c.auraParticle = "soft_glow"; c.orbitParticle = "sparkle"; c.trailParticle = "soft_glow";
+                c.swingParticle = "soft_glow"; c.hitParticle = "sparkle";
             }
         }
     }

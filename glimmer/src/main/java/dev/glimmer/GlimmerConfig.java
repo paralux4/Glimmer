@@ -13,6 +13,9 @@ public class GlimmerConfig {
     private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("glimmer.json");
     public static GlimmerConfig INSTANCE = new GlimmerConfig();
 
+    /** Settings format version, used to move old configs to the new default particles. */
+    public Integer version;
+
     public boolean enabled = true;
     public boolean showInFirstPerson = false;
     public boolean glow = true; // fullbright particles
@@ -25,17 +28,18 @@ public class GlimmerConfig {
     public boolean hit = true;
 
     // particle per layer
-    public String auraParticle = "glow";
-    public String orbitParticle = "dust";
-    public String trailParticle = "end_rod";
-    public String swingParticle = "dust";
-    public String hitParticle = "enchanted_hit";
+    public String auraParticle = "soft_glow";
+    public String orbitParticle = "sparkle";
+    public String trailParticle = "soft_glow";
+    public String swingParticle = "soft_glow";
+    public String hitParticle = "sparkle";
 
     // color (affects the "dust" particle)
     public boolean rainbow = true;
     public int color = 0x55FFFF;
     public double rainbowSpeed = 1.0;
     public double dustSize = 1.0;
+    public double particleLife = 1.0; // lifetime multiplier for Glimmer particles
 
     // aura
     public double auraDensity = 2;
@@ -55,6 +59,7 @@ public class GlimmerConfig {
     public double swingArc = 140;
     public double swingTilt = 35;
     public int swingSamples = 8;
+    public int swingLife = 14; // how long the trail lingers, in ticks
     public double swingSize = 1.3;
     public double swingSpread = 0.5;
     public boolean swingFirstPerson = true;
@@ -63,11 +68,24 @@ public class GlimmerConfig {
     public int hitCount = 14;
     public double hitSpread = 0.15;
 
+    /** Old configs get the new Glimmer particles as defaults. */
+    private void migrateToV2() {
+        auraParticle = "soft_glow";
+        orbitParticle = "sparkle";
+        trailParticle = "soft_glow";
+        swingParticle = "soft_glow";
+        hitParticle = "sparkle";
+        version = 2;
+    }
+
     public static void load() {
         try {
             if (Files.exists(FILE)) {
                 GlimmerConfig c = GSON.fromJson(Files.readString(FILE), GlimmerConfig.class);
-                if (c != null) INSTANCE = c;
+                if (c != null) {
+                    INSTANCE = c;
+                    if (c.version == null || c.version < 2) c.migrateToV2();
+                }
             }
             save();
         } catch (Exception e) {
@@ -77,6 +95,7 @@ public class GlimmerConfig {
 
     public static void save() {
         try {
+            INSTANCE.version = 2;
             Files.writeString(FILE, GSON.toJson(INSTANCE));
         } catch (Exception e) {
             System.err.println("[Glimmer] Could not save config: " + e);
