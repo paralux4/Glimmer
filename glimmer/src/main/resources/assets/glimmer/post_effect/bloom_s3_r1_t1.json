@@ -20,12 +20,12 @@
      {
       "name": "Threshold",
       "type": "float",
-      "value": 0.5
+      "value": 0.55
      },
      {
       "name": "Softness",
       "type": "float",
-      "value": 0.25
+      "value": 0.2
      },
      {
       "name": "Strength",
@@ -171,12 +171,12 @@
      {
       "name": "Threshold",
       "type": "float",
-      "value": 0.5
+      "value": 0.55
      },
      {
       "name": "Softness",
       "type": "float",
-      "value": 0.25
+      "value": 0.2
      },
      {
       "name": "Strength",

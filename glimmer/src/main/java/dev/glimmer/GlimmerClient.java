@@ -3,6 +3,7 @@ package dev.glimmer;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
@@ -32,6 +33,13 @@ public class GlimmerClient implements ClientModInitializer {
         AttackEntityCallback.EVENT.register((player, level, hand, entity, hit) -> {
             if (level.isClientSide() && player == Minecraft.getInstance().player) {
                 GlimmerEffects.hitBurst(entity);
+            }
+            return InteractionResult.PASS;
+        });
+
+        AttackBlockCallback.EVENT.register((player, level, hand, pos, direction) -> {
+            if (level.isClientSide() && player == Minecraft.getInstance().player) {
+                GlimmerEffects.blockAttacked(pos);
             }
             return InteractionResult.PASS;
         });

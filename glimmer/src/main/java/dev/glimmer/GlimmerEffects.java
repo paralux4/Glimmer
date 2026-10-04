@@ -1,6 +1,7 @@
 package dev.glimmer;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.DustParticleOptions;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
@@ -61,6 +62,7 @@ public final class GlimmerEffects {
     private static double stepDist = 0;
     private static boolean stepSide = false;
     private static int lastSwingTick = -100;
+    private static final Map<Long, Integer> pendingBreaks = new HashMap<>();
     private static int ringIdx = 0;
     private static int lastRingTick = -100;
     private static final Map<Integer, Integer> recentHit = new HashMap<>();
@@ -182,10 +184,15 @@ public final class GlimmerEffects {
             extra = (float) (b - Math.floor(b));
             if (copies >= 6) extra = 0.0F;
         }
-        for (int i = 0; i < copies; i++) GlimmerParticles.spawn(level, l.particle, x, y, z, s);
+        s.alphaMul *= (float) l.opacity;
+        GlimmerParticles.Spec noTail = s.copy();
+        s.tailLife = l.tail > 0.01 ? (float) (3 + l.tail * 15) : 0.0F;
+        s.tailSize = (float) l.tailSize;
+        s.tailSteps = l.tailDensity;
+        for (int i = 0; i < copies; i++) GlimmerParticles.spawn(level, l.particle, x, y, z, i == 0 ? s : noTail);
         if (extra > 0.05F) {
-            GlimmerParticles.Spec e2 = s.copy();
-            e2.alphaMul = extra;
+            GlimmerParticles.Spec e2 = noTail.copy();
+            e2.alphaMul = extra * (float) l.opacity;
             GlimmerParticles.spawn(level, l.particle, x, y, z, e2);
         }
 
@@ -195,8 +202,9 @@ public final class GlimmerEffects {
             core.size = size * 0.55F;
             core.rgb = toWhite(rgb, 0.4 + 0.55 * l.core);
             core.rgb2 = toWhite(rgb2, 0.4 + 0.55 * l.core);
-            core.alphaMul = 1.0F;
+            core.alphaMul = (float) l.opacity;
             core.twinkle = 0.0F;
+            core.tailLife = 0.0F;
             double[] cp = away(x, y, z, -0.015);
             GlimmerParticles.spawn(level, l.particle, cp[0], cp[1], cp[2], core);
         }
@@ -206,7 +214,8 @@ public final class GlimmerEffects {
         if (bloom > 0.02 && grow <= 0) {
             GlimmerParticles.Spec bs = s.copy();
             bs.size = size * (float) c.bloomSize;
-            bs.alphaMul = (float) Math.min(0.9, 0.22 * bloom * Math.sqrt(Math.max(1.0, b)));
+            bs.alphaMul = (float) (Math.min(0.9, 0.22 * bloom * Math.sqrt(Math.max(1.0, b))) * l.opacity);
+            bs.tailLife = 0.0F;
             bs.rgb = toWhite(rgb, 0.15 + white);
             bs.rgb2 = toWhite(rgb2, 0.15 + white);
             bs.spin = 0.0F;
@@ -254,6 +263,46 @@ public final class GlimmerEffects {
         else lastSwing = 0;
 
         hitScan(mc, p, c);
+        breakScan(mc, c);
+    }
+
+    /** Remembers a block you started breaking, so its burst can play when it disappears. */
+    public static void blockAttacked(BlockPos pos) {
+        if (!GlimmerConfig.INSTANCE.breakFx.on) return;
+        pendingBreaks.put(pos.asLong(), tick);
+    }
+
+    private static void breakScan(Minecraft mc, GlimmerConfig c) {
+        if (pendingBreaks.isEmpty()) return;
+        if (!c.enabled || !c.breakFx.on) {
+            pendingBreaks.clear();
+            return;
+        }
+        var it = pendingBreaks.entrySet().iterator();
+        while (it.hasNext()) {
+            var en = it.next();
+            BlockPos pos = BlockPos.of(en.getKey());
+            if (mc.level.getBlockState(pos).isAir()) {
+                it.remove();
+                breakBurst(mc.level, pos, c);
+            } else if (tick - en.getValue() > 200) {
+                it.remove();
+            }
+        }
+    }
+
+    /** Glowing debris from a broken block. */
+    private static void breakBurst(Level level, BlockPos pos, GlimmerConfig c) {
+        var rnd = level.getRandom();
+        double cx = pos.getX() + 0.5, cy = pos.getY() + 0.5, cz = pos.getZ() + 0.5;
+        for (int i = 0; i < c.breakCount; i++) {
+            double dx = (rnd.nextDouble() - 0.5) * 2 * c.breakSpread * 3;
+            double dy = (rnd.nextDouble() - 0.3) * c.breakSpread * 3 + c.breakLift * (0.5 + rnd.nextDouble());
+            double dz = (rnd.nextDouble() - 0.5) * 2 * c.breakSpread * 3;
+            emit(level, c.breakFx, cx + (rnd.nextDouble() - 0.5) * 0.7, cy + (rnd.nextDouble() - 0.5) * 0.7,
+                    cz + (rnd.nextDouble() - 0.5) * 0.7, dx, dy, dz, rnd.nextFloat() * 0.4F,
+                    0.6F + rnd.nextFloat() * 0.8F, 40, -1F);
+        }
     }
 
     private static void aura(Player p, GlimmerConfig c, double k) {

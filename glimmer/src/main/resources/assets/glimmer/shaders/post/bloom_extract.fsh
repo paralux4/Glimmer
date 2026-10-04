@@ -14,7 +14,7 @@ layout(location = 0) out vec4 fragColor;
 
 void main() {
     vec3 c = texture(InSampler, texCoord).rgb;
-    float l = max(c.r, max(c.g, c.b));
+    float l = dot(c, vec3(0.299, 0.587, 0.114));
     float k = smoothstep(Threshold, Threshold + Softness, l);
     fragColor = vec4(c * k, 1.0);
 }

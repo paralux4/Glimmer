@@ -7,10 +7,10 @@ import net.fabricmc.loader.api.FabricLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/** All user-tweakable settings. Saved to config/glimmer-v6.json. */
+/** All user-tweakable settings. Saved to config/glimmer-v7.json. */
 public class GlimmerConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("glimmer-v6.json");
+    private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("glimmer-v7.json");
     public static GlimmerConfig INSTANCE = new GlimmerConfig();
 
     /** Look + physics settings shared by every effect layer. */
@@ -40,6 +40,11 @@ public class GlimmerConfig {
         // brightness / bloom (multiplied with the global values)
         public double brightness = 1.0;
         public double bloom = 1.0;
+        public double opacity = 1.0;   // overall transparency of this layer's particles
+        // tails: little lines that drag behind moving particles (e.g. stars falling to the ground)
+        public double tail = 0.0;      // 0 = off, 1 = long
+        public double tailSize = 0.5;  // thickness of the line
+        public int tailDensity = 2;    // dots per tick that make up the line
         public double fps = 0.0;     // animation FPS for this layer (0 = use the global value)
         public boolean flat = false; // lie flat on the ground instead of facing the camera
 
@@ -63,21 +68,21 @@ public class GlimmerConfig {
 
     // global color
     public boolean rainbow = false;
-    public int color = 5625855;
+    public int color = 0x45E3FF;
     public boolean gradient = true;
-    public int color2 = 13235455;
+    public int color2 = 0xB44CFF;
     public double rainbowSpeed = 1.0;
 
     // glow (global)
-    public double brightness = 1.5;  // how bright particles are (stacks and whitens them)
-    public double bloom = 0.25;      // strength of the soft particle bloom
+    public double brightness = 2.2;  // how bright particles are (stacks and whitens them)
+    public double bloom = 0.35;      // strength of the soft particle bloom
     public double animFps = 120.0;   // how many animation frames per second particles use (20 = vanilla steps)
     // real screen bloom (post-processing): everything bright bleeds light
     public boolean screenBloom = true;
-    public int bloomLevel = 2;       // 1-6 strength
-    public int bloomRadius = 2;      // 1-3 how far the glow spreads
-    public int bloomThreshold = 2;   // 1-3 how bright something must be to glow (1 = most things)
-    public double bloomSize = 3.0;   // size of the bloom
+    public int bloomLevel = 4;       // 1-6 strength
+    public int bloomRadius = 1;      // 1-3 how far the glow spreads
+    public int bloomThreshold = 3;   // 1-3 how bright something must be to glow (1 = most things)
+    public double bloomSize = 2.6;   // size of the bloom
 
     /** Cel-shaded held item: flat lighting plus a colored, glowing outline. */
     public static class Cel {
@@ -85,13 +90,13 @@ public class GlimmerConfig {
         public boolean firstPerson = true;
         public boolean thirdPerson = false;
         public boolean flatLight = true;   // ignore world lighting on the item (flat, even look)
-        public double thickness = 0.9;     // outline thickness in item pixels
-        public double glow = 0.5;          // soft glow outside the outline
-        public double glowSize = 1.2;      // how far each glow step reaches, in item pixels
+        public double thickness = 1.0;     // outline thickness in item pixels
+        public double glow = 0.8;          // soft glow outside the outline
+        public double glowSize = 1.0;      // how far each glow step reaches, in item pixels
         public boolean useGlobalColor = true;
         public boolean rainbow = false;
         public int color = 0x55D7FF;
-        public double brightness = 1.0;    // whitens the outline color
+        public double brightness = 2.5;    // whitens the outline color
         public boolean flip = false;       // flip which side of the item the outline is drawn on
     }
     public Cel cel = new Cel();
@@ -106,8 +111,9 @@ public class GlimmerConfig {
     public Layer trail = new Layer(false, "sparkle", 1.0, 1.0, 0.0, 0.0);
     public Layer swing = new Layer(true, "soft_glow", 1.4, 1.0, 0.0, 0.0);
     public Layer hit = new Layer(true, "sparkle", 1.2, 1.0, 8.0, 0.0);
-    public Layer foot = new Layer(true, "ring", 1.0, 1.0, 0.0, 0.0);
+    public Layer foot = new Layer(true, "ring_thin", 1.0, 0.9, 0.0, 0.0);
     public Layer weapon = new Layer(false, "soft_glow", 0.8, 1.0, 0.0, 0.0);
+    public Layer breakFx = new Layer(true, "dot", 0.9, 1.0, 6.0, 0.0);
 
     {
         // falling stars: hit sparkles fall with gravity, bounce, slide and get kicked by you
@@ -120,9 +126,23 @@ public class GlimmerConfig {
         hit.core = 0.6;
         hit.twinkle = 0.25;
         hit.fade = 1.2;
+        hit.tail = 0.7;
+        orbit.core = 0.6;
+        swing.core = 0.5;
+        // footstep ring: thin, faint and short-lived so it is not obvious
         foot.flat = true;
         foot.bloom = 0.0;
-        foot.fade = 1.3;
+        foot.fade = 2.0;
+        foot.opacity = 0.3;
+        foot.brightness = 0.8;
+        // block breaking: glowing debris that falls, bounces and trails
+        breakFx.gravity = 1.0;
+        breakFx.bounce = 0.4;
+        breakFx.collide = true;
+        breakFx.slide = 0.7;
+        breakFx.core = 0.5;
+        breakFx.tail = 0.3;
+        breakFx.fade = 1.2;
     }
 
     // aura
@@ -152,10 +172,16 @@ public class GlimmerConfig {
     public double hitLift = 0.25;   // upward pop so stars arc and fall
     public double hitRange = 4.0;   // see hit effects on targets up to this far away (max 5)
 
-    // footstep ring (one big ring per step)
-    public int footMinGap = 3;      // minimum ticks between rings so they don't pile up
-    public double footInterval = 0.4;
-    public double footRadius = 1.0048034934497818;
+    // block breaking
+    public int breakCount = 14;
+    public double breakSpread = 0.1;
+    public double breakLift = 0.12;
+    public boolean breakHideVanilla = false; // hide the normal block-break particles
+
+    // footstep ring (one thin ring per step)
+    public int footMinGap = 6;      // minimum ticks between rings so they don't pile up
+    public double footInterval = 1.0;
+    public double footRadius = 0.6;
     public int footPoints = 48; // only used if the step particle is not a ring
     public double footSide = 0.20087336244541484;
     public boolean landRing = true;

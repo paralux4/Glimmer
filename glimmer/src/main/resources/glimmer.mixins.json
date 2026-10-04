@@ -6,7 +6,8 @@
   "client": [
     "ParticleMixin",
     "SubmitItemMixin",
-    "ItemStateMixin"
+    "ItemStateMixin",
+    "ParticleDestroyMixin"
   ],
   "injectors": {
     "defaultRequire": 0

@@ -22,7 +22,7 @@ import java.util.function.Supplier;
  * smooth scrolling and a live color picker. Opened with /glimmer. Saves automatically.
  */
 public class GlimmerScreen extends Screen {
-    private static final String[] TABS = {"General", "Color", "Aura", "Orbit", "Trail", "Swing", "Hit", "Steps", "Weapon", "Outline"};
+    private static final String[] TABS = {"General", "Color", "Aura", "Orbit", "Trail", "Swing", "Hit", "Steps", "Weapon", "Outline", "Break"};
     private static int tab = 0;
 
     private final List<Row> rows = new ArrayList<>();
@@ -209,6 +209,14 @@ public class GlimmerScreen extends Screen {
                 look(c.foot);
             }
             case 9 -> celTab(c);
+            case 10 -> {
+                header("Block breaking");
+                slider("Amount", 0, 60, true, () -> c.breakCount, v -> c.breakCount = (int) v);
+                slider("Spread", 0.02, 0.6, false, () -> c.breakSpread, v -> c.breakSpread = v);
+                slider("Upward pop", 0, 0.6, false, () -> c.breakLift, v -> c.breakLift = v);
+                toggle("Hide vanilla break particles", () -> c.breakHideVanilla, v -> c.breakHideVanilla = v);
+                look(c.breakFx);
+            }
             default -> {
                 header("Weapon glow");
                 note("Soft glow around the held item.");
@@ -242,7 +250,7 @@ public class GlimmerScreen extends Screen {
         note(ScaleMeCompat.loaded() ? "ScaleMe detected." : "ScaleMe is not installed.");
         toggle("Follow ScaleMe swing + scale", () -> c.followScaleMe, v -> c.followScaleMe = v);
         header("Presets");
-        rows.add(new ButtonsRow(new String[]{"Ice", "Fire", "Void", "Rainbow"}, name -> {
+        rows.add(new ButtonsRow(new String[]{"Cheat", "Ice", "Fire", "Void", "Rainbow"}, name -> {
             applyPreset(name);
             rebuild();
         }));
@@ -277,12 +285,17 @@ public class GlimmerScreen extends Screen {
         toggle("Layer enabled", () -> l.on, v -> l.on = v);
         rows.add(new CycleRow("Particle", GlimmerEffects.particleNames(), () -> l.particle, v -> l.particle = v));
         slider("Size", 0.2, 4, false, () -> l.size, v -> l.size = v);
+        slider("Opacity", 0.05, 1, false, () -> l.opacity, v -> l.opacity = v);
         slider("Lifetime", 0.3, 3, false, () -> l.life, v -> l.life = v);
         slider("Spin", -30, 30, false, () -> l.spin, v -> l.spin = v);
         slider("Float up/down", -0.05, 0.05, false, () -> l.rise, v -> l.rise = v);
         slider("Fade curve", 0.5, 3, false, () -> l.fade, v -> l.fade = v);
         slider("Animation FPS (0 = global)", 0, 240, true, () -> l.fps, v -> l.fps = v);
         toggle("Lie flat on ground", () -> l.flat, v -> l.flat = v);
+        header("Trail lines");
+        slider("Tail length", 0, 1, false, () -> l.tail, v -> l.tail = v);
+        slider("Tail thickness", 0.1, 1.2, false, () -> l.tailSize, v -> l.tailSize = v);
+        slider("Tail smoothness", 1, 4, true, () -> l.tailDensity, v -> l.tailDensity = (int) v);
         header("Glow");
         slider("Bright core", 0, 1, false, () -> l.core, v -> l.core = v);
         slider("Twinkle", 0, 1, false, () -> l.twinkle, v -> l.twinkle = v);
@@ -339,12 +352,20 @@ public class GlimmerScreen extends Screen {
         c.glow = true;
         c.gradient = true;
         switch (name) {
+            case "Cheat" -> {
+                c.rainbow = false; c.color = 0x45E3FF; c.color2 = 0xB44CFF;
+                c.brightness = 2.2; c.bloom = 0.35; c.bloomSize = 2.6;
+                c.screenBloom = true; c.bloomLevel = 4; c.bloomRadius = 1; c.bloomThreshold = 3;
+                c.cel.on = true; c.cel.glow = 0.8; c.cel.thickness = 1.0; c.cel.glowSize = 1.0; c.cel.brightness = 2.5;
+                c.cel.useGlobalColor = true;
+                c.hit.core = 0.8; c.hit.tail = 0.7; c.orbit.core = 0.6; c.swing.core = 0.5;
+            }
             case "Ice" -> { c.rainbow = false; c.color = 0x55D7FF; c.color2 = 0xC9F4FF; }
             case "Fire" -> { c.rainbow = false; c.color = 0xFF5A00; c.color2 = 0xFFD23C; }
             case "Void" -> { c.rainbow = false; c.color = 0xB44CFF; c.color2 = 0x4C6BFF; }
             default -> { c.rainbow = true; }
         }
-        for (GlimmerConfig.Layer l : new GlimmerConfig.Layer[]{c.aura, c.orbit, c.trail, c.swing, c.hit, c.foot, c.weapon}) {
+        for (GlimmerConfig.Layer l : new GlimmerConfig.Layer[]{c.aura, c.orbit, c.trail, c.swing, c.hit, c.foot, c.weapon, c.breakFx}) {
             l.customColor = false;
         }
         GlimmerConfig.save();
