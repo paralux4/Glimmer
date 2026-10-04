@@ -22,7 +22,7 @@ import java.util.function.Supplier;
  * smooth scrolling and a live color picker. Opened with /glimmer. Saves automatically.
  */
 public class GlimmerScreen extends Screen {
-    private static final String[] TABS = {"General", "Color", "Aura", "Orbit", "Trail", "Swing", "Hit", "Steps", "Weapon"};
+    private static final String[] TABS = {"General", "Color", "Aura", "Orbit", "Trail", "Swing", "Hit", "Steps", "Weapon", "Outline"};
     private static int tab = 0;
 
     private final List<Row> rows = new ArrayList<>();
@@ -201,6 +201,7 @@ public class GlimmerScreen extends Screen {
                 slider("Teleport distance", 2, 12, false, () -> c.teleportMin, v -> c.teleportMin = v);
                 look(c.foot);
             }
+            case 9 -> celTab(c);
             default -> {
                 header("Weapon glow");
                 note("Soft glow around the held item.");
@@ -219,6 +220,10 @@ public class GlimmerScreen extends Screen {
         toggle("Effects enabled", () -> c.enabled, v -> c.enabled = v);
         toggle("Glow (fullbright)", () -> c.glow, v -> c.glow = v);
         toggle("Aura/orbit in 1st person", () -> c.showInFirstPerson, v -> c.showInFirstPerson = v);
+        header("Glow");
+        slider("Brightness", 0.3, 6, false, () -> c.brightness, v -> c.brightness = v);
+        slider("Bloom", 0, 2, false, () -> c.bloom, v -> c.bloom = v);
+        slider("Bloom size", 1.2, 8, false, () -> c.bloomSize, v -> c.bloomSize = v);
         header("ScaleMe");
         note(ScaleMeCompat.loaded() ? "ScaleMe detected." : "ScaleMe is not installed.");
         toggle("Follow ScaleMe swing + scale", () -> c.followScaleMe, v -> c.followScaleMe = v);
@@ -262,9 +267,12 @@ public class GlimmerScreen extends Screen {
         slider("Spin", -30, 30, false, () -> l.spin, v -> l.spin = v);
         slider("Float up/down", -0.05, 0.05, false, () -> l.rise, v -> l.rise = v);
         slider("Fade curve", 0.5, 3, false, () -> l.fade, v -> l.fade = v);
+        toggle("Lie flat on ground", () -> l.flat, v -> l.flat = v);
         header("Glow");
         slider("Bright core", 0, 1, false, () -> l.core, v -> l.core = v);
         slider("Twinkle", 0, 1, false, () -> l.twinkle, v -> l.twinkle = v);
+        slider("Brightness x", 0, 3, false, () -> l.brightness, v -> l.brightness = v);
+        slider("Bloom x", 0, 3, false, () -> l.bloom, v -> l.bloom = v);
         header("Physics");
         slider("Gravity", 0, 2, false, () -> l.gravity, v -> l.gravity = v);
         slider("Bounce", 0, 0.95, false, () -> l.bounce, v -> l.bounce = v);
@@ -288,6 +296,27 @@ public class GlimmerScreen extends Screen {
                 colorBlock(() -> l.color2, v -> l.color2 = v);
             }
         }
+    }
+
+    private void celTab(GlimmerConfig c) {
+        GlimmerConfig.Cel cel = c.cel;
+        header("Cel-shaded item");
+        note("Flat lighting and a glowing outline on held items.");
+        toggle("Enabled", () -> cel.on, v -> cel.on = v);
+        toggle("First person", () -> cel.firstPerson, v -> cel.firstPerson = v);
+        toggle("Third person / others", () -> cel.thirdPerson, v -> cel.thirdPerson = v);
+        toggle("Flat lighting", () -> cel.flatLight, v -> cel.flatLight = v);
+        slider("Outline thickness", 0.01, 0.2, false, () -> cel.thickness, v -> cel.thickness = v);
+        slider("Glow", 0, 1, false, () -> cel.glow, v -> cel.glow = v);
+        slider("Glow reach", 0.02, 0.3, false, () -> cel.glowSize, v -> cel.glowSize = v);
+        slider("Brightness", 0.5, 6, false, () -> cel.brightness, v -> cel.brightness = v);
+        toggle("Flip outline side", () -> cel.flip, v -> cel.flip = v);
+        note("Outline looks wrong? Try Flip.");
+        header("Outline color");
+        toggleR("Use global color", () -> cel.useGlobalColor, v -> cel.useGlobalColor = v, this::rebuild);
+        if (cel.useGlobalColor) return;
+        toggleR("Rainbow", () -> cel.rainbow, v -> cel.rainbow = v, this::rebuild);
+        if (!cel.rainbow) colorBlock(() -> cel.color, v -> cel.color = v);
     }
 
     private void applyPreset(String name) {

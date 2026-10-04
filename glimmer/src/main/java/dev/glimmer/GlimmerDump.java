@@ -33,7 +33,8 @@ public final class GlimmerDump {
                     + "|BlockRenderDispatcher|BlockStateModel|BlockModelPart|BlockColors|BlockTintSource|BlockTint"
                     + "|LevelRenderer|FeatureRenderDispatcher|ItemFeatureRenderer|GameRenderer|LightTexture|Lightmap"
                     + "|PostChain|PostPass|LevelTargetBundle|SectionCompiler|ModelBlockRenderer|BlockQuad|BakedQuad"
-                    + "|CompositeModel|ItemTransform|ItemDisplayContext");
+                    + "|CompositeModel|ItemTransform|ItemDisplayContext|SingleQuadParticle|QuadParticleRenderState|ParticleGroup"
+                    + "|ParticleEngine|BlendFunction|RenderPipeline|PoseStack|VertexConsumer|ChunkSectionLayer");
 
     public static String run() {
         Path out = FabricLoader.getInstance().getGameDir().resolve("glimmer-dump.txt");
@@ -74,7 +75,7 @@ public final class GlimmerDump {
             Enumeration<JarEntry> en = jf.entries();
             while (en.hasMoreElements()) {
                 String name = en.nextElement().getName();
-                if (!name.endsWith(".class") || !name.startsWith("net/minecraft/client/")) continue;
+                if (!name.endsWith(".class") || !(name.startsWith("net/minecraft/client/") || name.startsWith("com/mojang/blaze3d/"))) continue;
                 String simple = name.substring(name.lastIndexOf('/') + 1);
                 if (simple.indexOf('$') >= 0) continue; // nested classes are listed with their parent
                 if (WANTED.matcher(simple).find()) {

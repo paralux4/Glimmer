@@ -7,10 +7,10 @@ import net.fabricmc.loader.api.FabricLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/** All user-tweakable settings. Saved to config/glimmer-v4.json. */
+/** All user-tweakable settings. Saved to config/glimmer-v5.json. */
 public class GlimmerConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("glimmer-v4.json");
+    private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("glimmer-v5.json");
     public static GlimmerConfig INSTANCE = new GlimmerConfig();
 
     /** Look + physics settings shared by every effect layer. */
@@ -37,6 +37,10 @@ public class GlimmerConfig {
         public double slide = 0.85;  // sliding friction on the ground (lower = stops quicker)
         public double drag = 0.96;   // air drag (1 = none)
         public double push = 0.0;    // how strongly you kick it when you walk through it
+        // brightness / bloom (multiplied with the global values)
+        public double brightness = 1.0;
+        public double bloom = 1.0;
+        public boolean flat = false; // lie flat on the ground instead of facing the camera
 
         public Layer() {}
 
@@ -63,6 +67,28 @@ public class GlimmerConfig {
     public int color2 = 13235455;
     public double rainbowSpeed = 1.0;
 
+    // glow (global)
+    public double brightness = 1.5;  // how bright particles are (stacks and whitens them)
+    public double bloom = 0.4;       // strength of the soft bloom around particles
+    public double bloomSize = 3.0;   // size of the bloom
+
+    /** Cel-shaded held item: flat lighting plus a colored, glowing outline. */
+    public static class Cel {
+        public boolean on = true;
+        public boolean firstPerson = true;
+        public boolean thirdPerson = false;
+        public boolean flatLight = true;   // ignore world lighting on the item (flat, even look)
+        public double thickness = 0.05;    // outline thickness
+        public double glow = 0.5;          // soft glow outside the outline
+        public double glowSize = 0.1;      // how far the glow reaches
+        public boolean useGlobalColor = true;
+        public boolean rainbow = false;
+        public int color = 0x55D7FF;
+        public double brightness = 1.0;    // whitens the outline color
+        public boolean flip = false;       // flip which side of the item the outline is drawn on
+    }
+    public Cel cel = new Cel();
+
     // menu
     public double uiSpeed = 1.0;
     public double uiOpacity = 0.88;
@@ -73,7 +99,7 @@ public class GlimmerConfig {
     public Layer trail = new Layer(false, "sparkle", 1.0, 1.0, 0.0, 0.0);
     public Layer swing = new Layer(true, "soft_glow", 1.4, 1.0, 0.0, 0.0);
     public Layer hit = new Layer(true, "sparkle", 1.2, 1.0, 8.0, 0.0);
-    public Layer foot = new Layer(true, "dot", 0.49868995633187774, 1.9978165938864632, 12.183406113537117, 2.1834061135370814E-4);
+    public Layer foot = new Layer(true, "ring", 1.0, 1.0, 0.0, 0.0);
     public Layer weapon = new Layer(false, "soft_glow", 0.8, 1.0, 0.0, 0.0);
 
     {
@@ -87,6 +113,9 @@ public class GlimmerConfig {
         hit.core = 0.6;
         hit.twinkle = 0.25;
         hit.fade = 1.2;
+        foot.flat = true;
+        foot.bloom = 0.0;
+        foot.fade = 1.3;
     }
 
     // aura
@@ -119,7 +148,7 @@ public class GlimmerConfig {
     // footstep ring (one big ring per step)
     public double footInterval = 0.4;
     public double footRadius = 1.0048034934497818;
-    public int footPoints = 48;
+    public int footPoints = 48; // only used if the step particle is not a ring
     public double footSide = 0.20087336244541484;
     public boolean landRing = true;
     public double landMinFall = 0.8;

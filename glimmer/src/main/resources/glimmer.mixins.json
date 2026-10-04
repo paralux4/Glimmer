@@ -1,8 +1,14 @@
 {
-  "required": true,
+  "required": false,
   "minVersion": "0.8",
   "package": "dev.glimmer.mixin",
   "compatibilityLevel": "JAVA_21",
-  "client": ["ParticleMixin"],
-  "injectors": { "defaultRequire": 0 }
+  "client": [
+    "ParticleMixin",
+    "SubmitItemMixin",
+    "ItemStateMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
 }

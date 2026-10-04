@@ -50,7 +50,7 @@ public final class GlimmerEffects {
     /** All particle names the menu can choose from. */
     public static List<String> particleNames() {
         List<String> list = new ArrayList<>();
-        for (String n : GlimmerParticles.NAMES) list.add(n);
+        for (String n : GlimmerParticles.NAMES) if (!n.equals("bloom")) list.add(n);
         list.add("dust");
         list.addAll(VANILLA.keySet());
         return list;
@@ -125,48 +125,90 @@ public final class GlimmerEffects {
     }
 
     /**
-     * Spawns one particle using a layer's look and physics settings.
+     * Spawns one particle using a layer's look, glow and physics settings.
      * baseLife is in ticks. friction <= 0 means "use the layer's air drag".
      */
     private static void emit(Level level, GlimmerConfig.Layer l, double x, double y, double z,
                              double dx, double dy, double dz, float colorOffset, float sizeMul,
                              int baseLife, float friction) {
+        emit(level, l, x, y, z, dx, dy, dz, colorOffset, sizeMul, baseLife, friction, 0.0);
+    }
+
+    private static void emit(Level level, GlimmerConfig.Layer l, double x, double y, double z,
+                             double dx, double dy, double dz, float colorOffset, float sizeMul,
+                             int baseLife, float friction, double grow) {
+        GlimmerConfig c = GlimmerConfig.INSTANCE;
         int rgb = layerColor(l, colorOffset, false);
         int rgb2 = layerColor(l, colorOffset, true);
         float size = (float) (l.size * sizeMul);
+        double b = Math.max(0.05, c.brightness * l.brightness);
+        double white = Mth.clamp((float) ((b - 1.0) * 0.08), 0.0F, 0.35F);
 
-        if (GlimmerParticles.isCustom(l.particle)) {
-            GlimmerParticles.Spec s = new GlimmerParticles.Spec();
-            s.rgb = rgb;
-            s.rgb2 = rgb2;
-            s.size = size;
-            s.life = Math.max(3, Math.round(baseLife * (float) l.life));
-            s.dx = dx;
-            s.dy = dy + l.rise;
-            s.dz = dz;
-            s.friction = friction > 0 ? friction : (float) l.drag;
-            s.fade = (float) l.fade;
-            s.spin = (float) l.spin;
-            s.gravity = (float) l.gravity;
-            s.bounce = (float) l.bounce;
-            s.collide = l.collide;
-            s.slide = (float) l.slide;
-            s.push = (float) l.push;
-            s.twinkle = (float) l.twinkle;
-            GlimmerParticles.spawn(level, l.particle, x, y, z, s);
+        if (!GlimmerParticles.isCustom(l.particle)) {
+            addVanilla(level, vanilla(l.particle, toWhite(rgb, white), size), x, y, z, dx, dy + l.rise, dz);
+            return;
+        }
 
-            // white-hot core: a smaller, brighter copy that moves with the particle
-            if (l.core > 0.01) {
-                GlimmerParticles.Spec core = s.copy();
-                core.size = size * 0.55F;
-                core.rgb = toWhite(rgb, 0.4 + 0.55 * l.core);
-                core.rgb2 = toWhite(rgb2, 0.4 + 0.55 * l.core);
-                core.alphaMul = 1.0F;
-                core.twinkle = 0.0F;
-                GlimmerParticles.spawn(level, l.particle, x, y, z, core);
-            }
+        GlimmerParticles.Spec s = new GlimmerParticles.Spec();
+        s.rgb = toWhite(rgb, white);
+        s.rgb2 = toWhite(rgb2, white);
+        s.size = size;
+        s.life = Math.max(3, Math.round(baseLife * (float) l.life));
+        s.dx = dx;
+        s.dy = dy + l.rise;
+        s.dz = dz;
+        s.friction = friction > 0 ? friction : (float) l.drag;
+        s.fade = (float) l.fade;
+        s.spin = (float) l.spin;
+        s.gravity = (float) l.gravity;
+        s.bounce = (float) l.bounce;
+        s.collide = l.collide;
+        s.slide = (float) l.slide;
+        s.push = (float) l.push;
+        s.twinkle = (float) l.twinkle;
+        s.flat = l.flat;
+        s.grow = grow * l.size;
+
+        // brightness: below 1 dims, above 1 stacks extra copies (each one adds light)
+        int copies = 1;
+        float extra = 0.0F;
+        if (b <= 1.0) {
+            s.alphaMul = (float) b;
         } else {
-            addVanilla(level, vanilla(l.particle, rgb, size), x, y, z, dx, dy + l.rise, dz);
+            copies = (int) Math.min(6, Math.floor(b));
+            extra = (float) (b - Math.floor(b));
+            if (copies >= 6) extra = 0.0F;
+        }
+        for (int i = 0; i < copies; i++) GlimmerParticles.spawn(level, l.particle, x, y, z, s);
+        if (extra > 0.05F) {
+            GlimmerParticles.Spec e2 = s.copy();
+            e2.alphaMul = extra;
+            GlimmerParticles.spawn(level, l.particle, x, y, z, e2);
+        }
+
+        // white-hot core: a smaller, brighter copy that moves with the particle
+        if (l.core > 0.01 && grow <= 0) {
+            GlimmerParticles.Spec core = s.copy();
+            core.size = size * 0.55F;
+            core.rgb = toWhite(rgb, 0.4 + 0.55 * l.core);
+            core.rgb2 = toWhite(rgb2, 0.4 + 0.55 * l.core);
+            core.alphaMul = 1.0F;
+            core.twinkle = 0.0F;
+            GlimmerParticles.spawn(level, l.particle, x, y, z, core);
+        }
+
+        // bloom: a very soft, wide glow behind the particle
+        double bloom = c.bloom * l.bloom;
+        if (bloom > 0.02 && grow <= 0) {
+            GlimmerParticles.Spec bs = s.copy();
+            bs.size = size * (float) c.bloomSize;
+            bs.alphaMul = (float) Math.min(0.9, 0.22 * bloom * Math.sqrt(Math.max(1.0, b)));
+            bs.rgb = toWhite(rgb, 0.15 + white);
+            bs.rgb2 = toWhite(rgb2, 0.15 + white);
+            bs.spin = 0.0F;
+            bs.twinkle = 0.0F;
+            bs.flat = false;
+            GlimmerParticles.spawn(level, "bloom", x, y, z, bs);
         }
     }
 
@@ -241,6 +283,10 @@ public final class GlimmerEffects {
     /** One big ring of glow on the ground that expands outward from (cx, cy, cz). */
     private static void ring(Level level, GlimmerConfig c, double cx, double cy, double cz,
                              double radiusMul, double k) {
+        if (c.foot.particle.startsWith("ring")) { // one real ring that expands outward
+            emit(level, c.foot, cx, cy + 0.03, cz, 0, 0, 0, 0F, 1.0F, 22, 1.0F, c.footRadius * radiusMul * k);
+            return;
+        }
         int n = Math.max(8, c.footPoints);
         float fr = 0.84F;
         double v0 = c.footRadius * radiusMul * k * (1.0 - fr);

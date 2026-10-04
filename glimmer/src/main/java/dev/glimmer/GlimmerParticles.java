@@ -3,11 +3,13 @@ package dev.glimmer;
 import net.fabricmc.fabric.api.client.particle.v1.FabricSpriteSet;
 import net.fabricmc.fabric.api.client.particle.v1.ParticleProviderRegistry;
 import net.fabricmc.fabric.api.particle.v1.FabricParticleTypes;
+import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.particle.Particle;
 import net.minecraft.client.particle.ParticleProvider;
 import net.minecraft.client.particle.SingleQuadParticle;
+import net.minecraft.client.renderer.state.level.QuadParticleRenderState;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.core.Registry;
 import net.minecraft.core.particles.SimpleParticleType;
@@ -19,6 +21,9 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 
+import org.joml.Quaternionf;
+
+import java.lang.reflect.Method;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -31,7 +36,7 @@ import java.util.Map;
 public final class GlimmerParticles {
     private GlimmerParticles() {}
 
-    public static final String[] NAMES = {"soft_glow", "sparkle", "ring", "flare", "star", "dot"};
+    public static final String[] NAMES = {"soft_glow", "sparkle", "ring", "ring_thin", "ring_thick", "flare", "star", "dot", "bloom"};
     public static final Map<String, SimpleParticleType> TYPES = new LinkedHashMap<>();
 
     /** How one particle should look and move. Filled in just before it is spawned. */
@@ -52,13 +57,15 @@ public final class GlimmerParticles {
         public float slide = 0.85F;
         public float push = 0.0F;
         public float twinkle = 0.0F;
+        public boolean flat = false;   // lie flat on the ground
+        public double grow = 0.0;      // > 0: ring that expands to this radius (blocks)
 
         public Spec copy() {
             Spec s = new Spec();
             s.rgb = rgb; s.rgb2 = rgb2; s.size = size; s.alphaMul = alphaMul; s.spin = spin;
             s.friction = friction; s.fade = fade; s.life = life; s.dx = dx; s.dy = dy; s.dz = dz;
             s.gravity = gravity; s.bounce = bounce; s.collide = collide; s.slide = slide;
-            s.push = push; s.twinkle = twinkle;
+            s.push = push; s.twinkle = twinkle; s.flat = flat; s.grow = grow;
             return s;
         }
     }
@@ -102,6 +109,9 @@ public final class GlimmerParticles {
         private final float r1, g1, b1, r2, g2, b2;
         private final float bounce, slide, push, twinkle, phase;
         private final boolean bright;
+        private final boolean flat;
+        private final float growHalf;   // final half-size of an expanding ring (0 = normal particle)
+        private final Quaternionf flatRot = new Quaternionf();
 
         GlimmerParticle(ClientLevel level, double x, double y, double z, TextureAtlasSprite sprite, Spec s) {
             super(level, x, y, z, 0.0, 0.0, 0.0, sprite);
@@ -133,6 +143,8 @@ public final class GlimmerParticles {
             this.twinkle = s.twinkle;
             this.phase = this.random.nextFloat() * Mth.TWO_PI;
             this.bright = GlimmerConfig.INSTANCE.glow;
+            this.flat = s.flat;
+            this.growHalf = s.grow > 0 ? (float) (s.grow / 0.68) : 0.0F;
             this.roll = this.random.nextFloat() * Mth.TWO_PI;
             this.oRoll = this.roll;
             this.alpha = 0.0F;
@@ -181,6 +193,7 @@ public final class GlimmerParticles {
             float t = this.lifetime <= 0 ? 1.0F : (float) this.age / (float) this.lifetime;
             float fadeIn = Math.min(1.0F, t / 0.12F);
             float fadeOut = 1.0F - Mth.clamp((t - 0.25F) / 0.75F, 0.0F, 1.0F);
+            if (this.growHalf > 0.0F) this.quadSize = ringSize(t);
             float flick = 1.0F - this.twinkle * 0.5F * (1.0F + (float) Math.sin(this.age * 0.85F + this.phase));
             this.alpha = this.alphaMul * fadeIn * (float) Math.pow(fadeOut, this.fadeExp) * flick;
             this.rCol = Mth.lerp(t, r1, r2);
@@ -190,10 +203,49 @@ public final class GlimmerParticles {
             this.roll += this.spinRad;
         }
 
+        /** Ease-out growth of an expanding ring: it spreads fast, then slows down. */
+        private float ringSize(float t) {
+            float g = Mth.clamp(t / 0.65F, 0.0F, 1.0F);
+            float e = 1.0F - (1.0F - g) * (1.0F - g) * (1.0F - g);
+            return this.growHalf * e + 0.02F;
+        }
+
+        private static Method flatMethod;
+        private static boolean flatTried;
+
+        /** Draws the particle lying flat on the ground (rotated to face up) when "flat" is on. */
+        public void extract(QuadParticleRenderState state, Camera camera, float partialTick) {
+            if (this.flat) {
+                try {
+                    if (!flatTried) {
+                        flatTried = true;
+                        for (Method m : SingleQuadParticle.class.getDeclaredMethods()) {
+                            if (m.getName().equals("extractRotatedQuad") && m.getParameterCount() == 4
+                                    && m.getParameterTypes()[0] == QuadParticleRenderState.class) {
+                                m.setAccessible(true);
+                                flatMethod = m;
+                                break;
+                            }
+                        }
+                    }
+                    if (flatMethod != null) {
+                        float rl = Mth.lerp(partialTick, this.oRoll, this.roll);
+                        this.flatRot.identity().rotateY(rl).rotateX(-1.5707964F);
+                        flatMethod.invoke(this, state, camera, this.flatRot, partialTick);
+                        return;
+                    }
+                } catch (Throwable ignored) {
+                    flatMethod = null;
+                }
+            }
+            super.extract(state, camera, partialTick);
+        }
+
         // No @Override on purpose: if a method is named differently on a future version it is
         // simply skipped instead of breaking the build.
         public float getQuadSize(float partialTick) {
             float t = Mth.clamp((this.age + partialTick) / Math.max(1, this.lifetime), 0.0F, 1.0F);
+            if (this.growHalf > 0.0F) return ringSize(t);
             float pop = Math.min(1.0F, t / 0.08F);
             return this.baseSize * (0.35F + 0.65F * pop) * (1.0F - 0.6F * t * t);
         }
