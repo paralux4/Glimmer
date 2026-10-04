@@ -25,6 +25,7 @@ public class GlimmerClient implements ClientModInitializer {
                 openScreen(mc, new GlimmerScreen());
             }
             GlimmerEffects.tick(mc);
+            ScreenBloom.tick(mc);
         });
 
         // Purely cosmetic: always PASS so the attack itself is untouched.

@@ -34,7 +34,7 @@ public final class GlimmerDump {
                     + "|LevelRenderer|FeatureRenderDispatcher|ItemFeatureRenderer|GameRenderer|LightTexture|Lightmap"
                     + "|PostChain|PostPass|LevelTargetBundle|SectionCompiler|ModelBlockRenderer|BlockQuad|BakedQuad"
                     + "|CompositeModel|ItemTransform|ItemDisplayContext|SingleQuadParticle|QuadParticleRenderState|ParticleGroup"
-                    + "|ParticleEngine|BlendFunction|RenderPipeline|PoseStack|VertexConsumer|ChunkSectionLayer");
+                    + "|ParticleEngine|BlendFunction|RenderPipeline|PoseStack|VertexConsumer|ChunkSectionLayer|SpriteContents|TextureAtlasSprite|NativeImage");
 
     public static String run() {
         Path out = FabricLoader.getInstance().getGameDir().resolve("glimmer-dump.txt");

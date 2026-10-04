@@ -61,6 +61,8 @@ public final class GlimmerEffects {
     private static double stepDist = 0;
     private static boolean stepSide = false;
     private static int lastSwingTick = -100;
+    private static int ringIdx = 0;
+    private static int lastRingTick = -100;
     private static final Map<Integer, Integer> recentHit = new HashMap<>();
 
     // movement tracking (landing + teleport rings)
@@ -168,6 +170,7 @@ public final class GlimmerEffects {
         s.twinkle = (float) l.twinkle;
         s.flat = l.flat;
         s.grow = grow * l.size;
+        s.fps = (float) (l.fps > 0 ? l.fps : c.animFps);
 
         // brightness: below 1 dims, above 1 stacks extra copies (each one adds light)
         int copies = 1;
@@ -194,7 +197,8 @@ public final class GlimmerEffects {
             core.rgb2 = toWhite(rgb2, 0.4 + 0.55 * l.core);
             core.alphaMul = 1.0F;
             core.twinkle = 0.0F;
-            GlimmerParticles.spawn(level, l.particle, x, y, z, core);
+            double[] cp = away(x, y, z, -0.015);
+            GlimmerParticles.spawn(level, l.particle, cp[0], cp[1], cp[2], core);
         }
 
         // bloom: a very soft, wide glow behind the particle
@@ -208,8 +212,20 @@ public final class GlimmerEffects {
             bs.spin = 0.0F;
             bs.twinkle = 0.0F;
             bs.flat = false;
-            GlimmerParticles.spawn(level, "bloom", x, y, z, bs);
+            double[] bp = away(x, y, z, 0.03);
+            GlimmerParticles.spawn(level, "bloom", bp[0], bp[1], bp[2], bs);
         }
+    }
+
+    /** Moves a point along the line from the camera so layers of one particle always sort the same way. */
+    private static double[] away(double x, double y, double z, double amount) {
+        Player pl = Minecraft.getInstance().player;
+        if (pl == null) return new double[]{x, y, z};
+        double dx = x - pl.getX(), dy = y - (pl.getY() + pl.getEyeHeight()), dz = z - pl.getZ();
+        double len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (len < 0.5) return new double[]{x, y, z};
+        double k = amount / len;
+        return new double[]{x + dx * k, y + dy * k, z + dz * k};
     }
 
     // ------------------------------------------------------------------ main tick
@@ -284,7 +300,8 @@ public final class GlimmerEffects {
     private static void ring(Level level, GlimmerConfig c, double cx, double cy, double cz,
                              double radiusMul, double k) {
         if (c.foot.particle.startsWith("ring")) { // one real ring that expands outward
-            emit(level, c.foot, cx, cy + 0.03, cz, 0, 0, 0, 0F, 1.0F, 22, 1.0F, c.footRadius * radiusMul * k);
+            double lift = 0.03 + (ringIdx++ % 6) * 0.006;
+            emit(level, c.foot, cx, cy + lift, cz, 0, 0, 0, 0F, 1.0F, 22, 1.0F, c.footRadius * radiusMul * k);
             return;
         }
         int n = Math.max(8, c.footPoints);
@@ -353,6 +370,8 @@ public final class GlimmerEffects {
         if (!p.onGround() || hs < 0.02) return;
         stepDist += hs;
         if (stepDist < c.footInterval * k) return;
+        if (tick - lastRingTick < c.footMinGap) return; // don't pile rings on top of each other
+        lastRingTick = tick;
         stepDist = 0;
         stepSide = !stepSide;
 

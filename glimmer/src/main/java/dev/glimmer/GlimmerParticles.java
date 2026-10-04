@@ -59,13 +59,14 @@ public final class GlimmerParticles {
         public float twinkle = 0.0F;
         public boolean flat = false;   // lie flat on the ground
         public double grow = 0.0;      // > 0: ring that expands to this radius (blocks)
+        public float fps = 120.0F;     // animation frames per second
 
         public Spec copy() {
             Spec s = new Spec();
             s.rgb = rgb; s.rgb2 = rgb2; s.size = size; s.alphaMul = alphaMul; s.spin = spin;
             s.friction = friction; s.fade = fade; s.life = life; s.dx = dx; s.dy = dy; s.dz = dz;
             s.gravity = gravity; s.bounce = bounce; s.collide = collide; s.slide = slide;
-            s.push = push; s.twinkle = twinkle; s.flat = flat; s.grow = grow;
+            s.push = push; s.twinkle = twinkle; s.flat = flat; s.grow = grow; s.fps = fps;
             return s;
         }
     }
@@ -112,6 +113,8 @@ public final class GlimmerParticles {
         private final boolean flat;
         private final float growHalf;   // final half-size of an expanding ring (0 = normal particle)
         private final Quaternionf flatRot = new Quaternionf();
+        private final float fps;
+        private final float baseRoll;
 
         GlimmerParticle(ClientLevel level, double x, double y, double z, TextureAtlasSprite sprite, Spec s) {
             super(level, x, y, z, 0.0, 0.0, 0.0, sprite);
@@ -144,9 +147,11 @@ public final class GlimmerParticles {
             this.phase = this.random.nextFloat() * Mth.TWO_PI;
             this.bright = GlimmerConfig.INSTANCE.glow;
             this.flat = s.flat;
+            this.fps = s.fps;
             this.growHalf = s.grow > 0 ? (float) (s.grow / 0.68) : 0.0F;
             this.roll = this.random.nextFloat() * Mth.TWO_PI;
             this.oRoll = this.roll;
+            this.baseRoll = this.roll;
             this.alpha = 0.0F;
         }
 
@@ -190,17 +195,27 @@ public final class GlimmerParticles {
                 this.zd *= this.slide;
             }
 
-            float t = this.lifetime <= 0 ? 1.0F : (float) this.age / (float) this.lifetime;
+            applyVisual(this.age);
+        }
+
+        /** Sets size, fade, color and spin for a given point in the particle's life (in ticks, can be fractional). */
+        private void applyVisual(float time) {
+            float t = this.lifetime <= 0 ? 1.0F : Mth.clamp(time / (float) this.lifetime, 0.0F, 1.0F);
             float fadeIn = Math.min(1.0F, t / 0.12F);
             float fadeOut = 1.0F - Mth.clamp((t - 0.25F) / 0.75F, 0.0F, 1.0F);
-            if (this.growHalf > 0.0F) this.quadSize = ringSize(t);
-            float flick = 1.0F - this.twinkle * 0.5F * (1.0F + (float) Math.sin(this.age * 0.85F + this.phase));
+            float flick = 1.0F - this.twinkle * 0.5F * (1.0F + (float) Math.sin(time * 0.85F + this.phase));
             this.alpha = this.alphaMul * fadeIn * (float) Math.pow(fadeOut, this.fadeExp) * flick;
             this.rCol = Mth.lerp(t, r1, r2);
             this.gCol = Mth.lerp(t, g1, g2);
             this.bCol = Mth.lerp(t, b1, b2);
+            if (this.growHalf > 0.0F) {
+                this.quadSize = ringSize(t);
+            } else {
+                float pop = Math.min(1.0F, t / 0.08F);
+                this.quadSize = this.baseSize * (0.35F + 0.65F * pop) * (1.0F - 0.6F * t * t);
+            }
+            this.roll = this.baseRoll + this.spinRad * time;
             this.oRoll = this.roll;
-            this.roll += this.spinRad;
         }
 
         /** Ease-out growth of an expanding ring: it spreads fast, then slows down. */
@@ -215,6 +230,12 @@ public final class GlimmerParticles {
 
         /** Draws the particle lying flat on the ground (rotated to face up) when "flat" is on. */
         public void extract(QuadParticleRenderState state, Camera camera, float partialTick) {
+            float time = this.age + partialTick;
+            if (this.fps > 0.0F && this.fps < 200.0F) { // lower FPS = steppier, stylized animation
+                float steps = this.fps / 20.0F;
+                time = (float) Math.floor(time * steps) / steps;
+            }
+            applyVisual(time);
             if (this.flat) {
                 try {
                     if (!flatTried) {
@@ -239,15 +260,6 @@ public final class GlimmerParticles {
                 }
             }
             super.extract(state, camera, partialTick);
-        }
-
-        // No @Override on purpose: if a method is named differently on a future version it is
-        // simply skipped instead of breaking the build.
-        public float getQuadSize(float partialTick) {
-            float t = Mth.clamp((this.age + partialTick) / Math.max(1, this.lifetime), 0.0F, 1.0F);
-            if (this.growHalf > 0.0F) return ringSize(t);
-            float pop = Math.min(1.0F, t / 0.08F);
-            return this.baseSize * (0.35F + 0.65F * pop) * (1.0F - 0.6F * t * t);
         }
 
         // Emissive: full brightness regardless of world light. Both names exist because the

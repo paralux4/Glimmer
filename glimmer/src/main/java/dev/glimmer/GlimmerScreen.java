@@ -42,7 +42,7 @@ public class GlimmerScreen extends Screen {
 
     // layout (recomputed every frame)
     private int px, py, pw, ph, sw, vx, vy, vw, vh, ty0;
-    private static final int TAB_H = 17;
+    private int tabH = 17;
 
     public GlimmerScreen() {
         super(Component.literal("Glimmer"));
@@ -106,6 +106,12 @@ public class GlimmerScreen extends Screen {
     private static void roundRect(GuiGraphicsExtractor g, int x, int y, int w, int h, int color) {
         g.fill(x + 1, y, x + w - 1, y + h, color);
         g.fill(x, y + 1, x + w, y + h - 1, color);
+    }
+
+    private String fit(String s, int max) {
+        if (font.width(s) <= max) return s;
+        while (s.length() > 1 && font.width(s + "..") > max) s = s.substring(0, s.length() - 1);
+        return s + "..";
     }
 
     private static float[] rgbToHsv(int rgb) {
@@ -188,6 +194,7 @@ public class GlimmerScreen extends Screen {
             case 7 -> {
                 header("Footstep ring");
                 slider("Distance between steps", 0.2, 3, false, () -> c.footInterval, v -> c.footInterval = v);
+                slider("Min ticks between rings", 0, 20, true, () -> c.footMinGap, v -> c.footMinGap = (int) v);
                 slider("Ring radius", 0.15, 3, false, () -> c.footRadius, v -> c.footRadius = v);
                 slider("Ring smoothness", 8, 96, true, () -> c.footPoints, v -> c.footPoints = (int) v);
                 slider("Left/right offset", 0, 0.5, false, () -> c.footSide, v -> c.footSide = v);
@@ -221,9 +228,16 @@ public class GlimmerScreen extends Screen {
         toggle("Glow (fullbright)", () -> c.glow, v -> c.glow = v);
         toggle("Aura/orbit in 1st person", () -> c.showInFirstPerson, v -> c.showInFirstPerson = v);
         header("Glow");
-        slider("Brightness", 0.3, 6, false, () -> c.brightness, v -> c.brightness = v);
-        slider("Bloom", 0, 2, false, () -> c.bloom, v -> c.bloom = v);
-        slider("Bloom size", 1.2, 8, false, () -> c.bloomSize, v -> c.bloomSize = v);
+        slider("Particle brightness", 0.3, 6, false, () -> c.brightness, v -> c.brightness = v);
+        slider("Particle bloom", 0, 2, false, () -> c.bloom, v -> c.bloom = v);
+        slider("Particle bloom size", 1.2, 8, false, () -> c.bloomSize, v -> c.bloomSize = v);
+        slider("Animation FPS", 5, 240, true, () -> c.animFps, v -> c.animFps = v);
+        header("Screen bloom");
+        note(ScreenBloom.unavailable() ? "Screen bloom could not load on this version." : "Real glow: bright things bleed light.");
+        toggle("Screen bloom", () -> c.screenBloom, v -> c.screenBloom = v);
+        slider("Strength", 1, 6, true, () -> c.bloomLevel, v -> c.bloomLevel = (int) v);
+        slider("Spread", 1, 3, true, () -> c.bloomRadius, v -> c.bloomRadius = (int) v);
+        slider("Brightness needed", 1, 3, true, () -> c.bloomThreshold, v -> c.bloomThreshold = (int) v);
         header("ScaleMe");
         note(ScaleMeCompat.loaded() ? "ScaleMe detected." : "ScaleMe is not installed.");
         toggle("Follow ScaleMe swing + scale", () -> c.followScaleMe, v -> c.followScaleMe = v);
@@ -267,6 +281,7 @@ public class GlimmerScreen extends Screen {
         slider("Spin", -30, 30, false, () -> l.spin, v -> l.spin = v);
         slider("Float up/down", -0.05, 0.05, false, () -> l.rise, v -> l.rise = v);
         slider("Fade curve", 0.5, 3, false, () -> l.fade, v -> l.fade = v);
+        slider("Animation FPS (0 = global)", 0, 240, true, () -> l.fps, v -> l.fps = v);
         toggle("Lie flat on ground", () -> l.flat, v -> l.flat = v);
         header("Glow");
         slider("Bright core", 0, 1, false, () -> l.core, v -> l.core = v);
@@ -306,9 +321,9 @@ public class GlimmerScreen extends Screen {
         toggle("First person", () -> cel.firstPerson, v -> cel.firstPerson = v);
         toggle("Third person / others", () -> cel.thirdPerson, v -> cel.thirdPerson = v);
         toggle("Flat lighting", () -> cel.flatLight, v -> cel.flatLight = v);
-        slider("Outline thickness", 0.01, 0.2, false, () -> cel.thickness, v -> cel.thickness = v);
+        slider("Outline thickness (px)", 0, 4, false, () -> cel.thickness, v -> cel.thickness = v);
         slider("Glow", 0, 1, false, () -> cel.glow, v -> cel.glow = v);
-        slider("Glow reach", 0.02, 0.3, false, () -> cel.glowSize, v -> cel.glowSize = v);
+        slider("Glow reach (px)", 0.3, 4, false, () -> cel.glowSize, v -> cel.glowSize = v);
         slider("Brightness", 0.5, 6, false, () -> cel.brightness, v -> cel.brightness = v);
         toggle("Flip outline side", () -> cel.flip, v -> cel.flip = v);
         note("Outline looks wrong? Try Flip.");
@@ -378,6 +393,7 @@ public class GlimmerScreen extends Screen {
         vy = py + 26;
         vh = ph - 32;
         ty0 = py + 34;
+        tabH = Math.max(11, Math.min(17, (ph - 34 - 24) / TABS.length));
     }
 
     @Override
@@ -405,20 +421,20 @@ public class GlimmerScreen extends Screen {
         text(g, "ESC to close", px + 9, py + ph - 14, 0x4F566A, e);
 
         // tabs
-        float targetY = ty0 + tab * TAB_H;
+        float targetY = ty0 + tab * tabH;
         if (indicatorY < 0f) indicatorY = targetY;
         indicatorY = approach(indicatorY, targetY, 16f);
         int iy = Math.round(indicatorY);
-        g.fill(px + 2, iy, px + sw, iy + TAB_H - 2, argb(accent, 0.16f * e));
-        g.fill(px, iy, px + 2, iy + TAB_H - 2, argb(accent, e));
+        g.fill(px + 2, iy, px + sw, iy + tabH - 2, argb(accent, 0.16f * e));
+        g.fill(px, iy, px + 2, iy + tabH - 2, argb(accent, e));
         for (int i = 0; i < TABS.length; i++) {
-            int ty = ty0 + i * TAB_H;
-            boolean hov = mx >= px && mx < px + sw && my >= ty && my < ty + TAB_H - 2;
+            int ty = ty0 + i * tabH;
+            boolean hov = mx >= px && mx < px + sw && my >= ty && my < ty + tabH - 2;
             tabHover[i] = approach(tabHover[i], hov ? 1f : 0f, 14f);
-            if (i != tab) g.fill(px + 2, ty, px + sw, ty + TAB_H - 2, argb(0xFFFFFF, 0.06f * tabHover[i] * e));
+            if (i != tab) g.fill(px + 2, ty, px + sw, ty + tabH - 2, argb(0xFFFFFF, 0.06f * tabHover[i] * e));
             float lit = i == tab ? 1f : tabHover[i];
             int tx = px + 10 + Math.round(lit * 2f);
-            text(g, TABS[i], tx, ty + 4, mix(0x8A91A3, 0xFFFFFF, lit), e);
+            text(g, TABS[i], tx, ty + Math.max(1, (tabH - 11) / 2 + 2), mix(0x8A91A3, 0xFFFFFF, lit), e);
         }
 
         // content header
@@ -462,8 +478,8 @@ public class GlimmerScreen extends Screen {
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         if (closing) return true;
         for (int i = 0; i < TABS.length; i++) {
-            int ty = ty0 + i * TAB_H;
-            if (mx >= px && mx < px + sw && my >= ty && my < ty + TAB_H - 2) {
+            int ty = ty0 + i * tabH;
+            if (mx >= px && mx < px + sw && my >= ty && my < ty + tabH - 2) {
                 if (i != tab) select(i);
                 return true;
             }
@@ -584,7 +600,7 @@ public class GlimmerScreen extends Screen {
             boolean on = get.getAsBoolean();
             if (t < 0f) t = on ? 1f : 0f;
             t = approach(t, on ? 1f : 0f, 18f);
-            text(g, label, x + 6, y + (h - 9) / 2, 0xE6E9F2, a);
+            text(g, fit(label, w - 52), x + 6, y + (h - 9) / 2, 0xE6E9F2, a);
             int trackW = 26, trackH = 12;
             int sx = x + w - trackW - 6, sy = y + (h - trackH) / 2;
             roundRect(g, sx, sy, trackW, trackH, argb(mix(0x3A3F4B, accent, t), a));
@@ -631,8 +647,8 @@ public class GlimmerScreen extends Screen {
             float n = (float) Mth.clamp((v - min) / (max - min), 0.0, 1.0);
             if (disp < 0f) disp = n;
             disp = approach(disp, n, 22f);
-            text(g, label, x + 6, y + 3, 0xE6E9F2, a);
             String s = fmt(v);
+            text(g, fit(label, w - 24 - font.width(s)), x + 6, y + 3, 0xE6E9F2, a);
             text(g, s, x + w - 6 - font.width(s), y + 3, mix(0x8A91A3, accent, hover), a);
             int tx = x + 6, tw = w - 12, ty = y + 17;
             g.fill(tx, ty, tx + tw, ty + 4, argb(0x2A2E3A, a));
@@ -681,8 +697,8 @@ public class GlimmerScreen extends Screen {
         void draw(GuiGraphicsExtractor g, float a) {
             updateHover();
             background(g, a);
-            text(g, label, x + 6, y + (h - 9) / 2, 0xE6E9F2, a);
             ctrlW = 112;
+            text(g, fit(label, w - ctrlW - 18), x + 6, y + (h - 9) / 2, 0xE6E9F2, a);
             ctrlX = x + w - ctrlW - 6;
             roundRect(g, ctrlX, y + 2, ctrlW, h - 4, argb(0x1A1D27, a));
             if (hot() && mx >= ctrlX && mx < ctrlX + ctrlW) {

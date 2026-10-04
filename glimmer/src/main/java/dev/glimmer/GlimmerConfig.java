@@ -7,10 +7,10 @@ import net.fabricmc.loader.api.FabricLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/** All user-tweakable settings. Saved to config/glimmer-v5.json. */
+/** All user-tweakable settings. Saved to config/glimmer-v6.json. */
 public class GlimmerConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("glimmer-v5.json");
+    private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("glimmer-v6.json");
     public static GlimmerConfig INSTANCE = new GlimmerConfig();
 
     /** Look + physics settings shared by every effect layer. */
@@ -40,6 +40,7 @@ public class GlimmerConfig {
         // brightness / bloom (multiplied with the global values)
         public double brightness = 1.0;
         public double bloom = 1.0;
+        public double fps = 0.0;     // animation FPS for this layer (0 = use the global value)
         public boolean flat = false; // lie flat on the ground instead of facing the camera
 
         public Layer() {}
@@ -69,7 +70,13 @@ public class GlimmerConfig {
 
     // glow (global)
     public double brightness = 1.5;  // how bright particles are (stacks and whitens them)
-    public double bloom = 0.4;       // strength of the soft bloom around particles
+    public double bloom = 0.25;      // strength of the soft particle bloom
+    public double animFps = 120.0;   // how many animation frames per second particles use (20 = vanilla steps)
+    // real screen bloom (post-processing): everything bright bleeds light
+    public boolean screenBloom = true;
+    public int bloomLevel = 2;       // 1-6 strength
+    public int bloomRadius = 2;      // 1-3 how far the glow spreads
+    public int bloomThreshold = 2;   // 1-3 how bright something must be to glow (1 = most things)
     public double bloomSize = 3.0;   // size of the bloom
 
     /** Cel-shaded held item: flat lighting plus a colored, glowing outline. */
@@ -78,9 +85,9 @@ public class GlimmerConfig {
         public boolean firstPerson = true;
         public boolean thirdPerson = false;
         public boolean flatLight = true;   // ignore world lighting on the item (flat, even look)
-        public double thickness = 0.05;    // outline thickness
+        public double thickness = 0.9;     // outline thickness in item pixels
         public double glow = 0.5;          // soft glow outside the outline
-        public double glowSize = 0.1;      // how far the glow reaches
+        public double glowSize = 1.2;      // how far each glow step reaches, in item pixels
         public boolean useGlobalColor = true;
         public boolean rainbow = false;
         public int color = 0x55D7FF;
@@ -146,6 +153,7 @@ public class GlimmerConfig {
     public double hitRange = 4.0;   // see hit effects on targets up to this far away (max 5)
 
     // footstep ring (one big ring per step)
+    public int footMinGap = 3;      // minimum ticks between rings so they don't pile up
     public double footInterval = 0.4;
     public double footRadius = 1.0048034934497818;
     public int footPoints = 48; // only used if the step particle is not a ring
