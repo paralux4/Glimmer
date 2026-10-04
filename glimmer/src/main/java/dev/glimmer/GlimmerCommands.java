@@ -5,7 +5,7 @@ import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
 import net.minecraft.network.chat.Component;
 
-/** /glimmer opens the settings menu. Extra: toggle, reset, reload. */
+/** /glimmer opens the settings menu. Extra: toggle, reset, reload, dump. */
 public final class GlimmerCommands {
     private GlimmerCommands() {}
 
@@ -34,6 +34,12 @@ public final class GlimmerCommands {
         root.then(literal("reload").executes(ctx -> {
             GlimmerConfig.load();
             say(ctx.getSource(), "Config reloaded");
+            return 1;
+        }));
+
+        root.then(literal("dump").executes(ctx -> {
+            String where = GlimmerDump.run();
+            say(ctx.getSource(), "Wrote " + where);
             return 1;
         }));
 

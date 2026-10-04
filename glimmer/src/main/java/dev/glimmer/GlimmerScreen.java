@@ -181,14 +181,24 @@ public class GlimmerScreen extends Screen {
                 header("Shape");
                 slider("Amount", 0, 60, true, () -> c.hitCount, v -> c.hitCount = (int) v);
                 slider("Spread", 0.02, 0.6, false, () -> c.hitSpread, v -> c.hitSpread = v);
+                slider("Upward pop", 0, 0.8, false, () -> c.hitLift, v -> c.hitLift = v);
+                slider("Hit effect range", 0, 5, false, () -> c.hitRange, v -> c.hitRange = v);
                 look(c.hit);
             }
             case 7 -> {
-                header("Footsteps");
-                slider("Distance between steps", 0.4, 3, false, () -> c.footInterval, v -> c.footInterval = v);
-                slider("Ring radius", 0.15, 1.5, false, () -> c.footRadius, v -> c.footRadius = v);
-                slider("Ring points", 4, 24, true, () -> c.footPoints, v -> c.footPoints = (int) v);
+                header("Footstep ring");
+                slider("Distance between steps", 0.2, 3, false, () -> c.footInterval, v -> c.footInterval = v);
+                slider("Ring radius", 0.15, 3, false, () -> c.footRadius, v -> c.footRadius = v);
+                slider("Ring smoothness", 8, 96, true, () -> c.footPoints, v -> c.footPoints = (int) v);
                 slider("Left/right offset", 0, 0.5, false, () -> c.footSide, v -> c.footSide = v);
+                header("Landing and teleport");
+                toggle("Ring when landing", () -> c.landRing, v -> c.landRing = v);
+                slider("Min fall distance", 0.3, 4, false, () -> c.landMinFall, v -> c.landMinFall = v);
+                slider("Landing ring size", 0.5, 4, false, () -> c.landScale, v -> c.landScale = v);
+                toggle("Ring when jumping", () -> c.jumpRing, v -> c.jumpRing = v);
+                toggle("Ring on teleport", () -> c.teleportRing, v -> c.teleportRing = v);
+                toggle("Ring where you left", () -> c.teleportDeparture, v -> c.teleportDeparture = v);
+                slider("Teleport distance", 2, 12, false, () -> c.teleportMin, v -> c.teleportMin = v);
                 look(c.foot);
             }
             default -> {
@@ -252,8 +262,16 @@ public class GlimmerScreen extends Screen {
         slider("Spin", -30, 30, false, () -> l.spin, v -> l.spin = v);
         slider("Float up/down", -0.05, 0.05, false, () -> l.rise, v -> l.rise = v);
         slider("Fade curve", 0.5, 3, false, () -> l.fade, v -> l.fade = v);
-        slider("Glow halo", 0, 1, false, () -> l.halo, v -> l.halo = v);
-        slider("Halo size", 1, 5, false, () -> l.haloSize, v -> l.haloSize = v);
+        header("Glow");
+        slider("Bright core", 0, 1, false, () -> l.core, v -> l.core = v);
+        slider("Twinkle", 0, 1, false, () -> l.twinkle, v -> l.twinkle = v);
+        header("Physics");
+        slider("Gravity", 0, 2, false, () -> l.gravity, v -> l.gravity = v);
+        slider("Bounce", 0, 0.95, false, () -> l.bounce, v -> l.bounce = v);
+        toggle("Collide with blocks", () -> l.collide, v -> l.collide = v);
+        slider("Ground slide", 0.3, 1, false, () -> l.slide, v -> l.slide = v);
+        slider("Air drag", 0.8, 1, false, () -> l.drag, v -> l.drag = v);
+        slider("Pushed by you", 0, 2, false, () -> l.push, v -> l.push = v);
         header("Color");
         toggleR("Custom color", () -> l.customColor, v -> l.customColor = v, this::rebuild);
         if (!l.customColor) {
@@ -573,7 +591,7 @@ public class GlimmerScreen extends Screen {
 
         private String fmt(double v) {
             if (integer) return String.valueOf(Math.round(v));
-            return String.format(Math.abs(max - min) < 0.2 ? "%.3f" : "%.2f", v);
+            return String.format(Math.abs(max - min) <= 0.25 ? "%.3f" : "%.2f", v);
         }
 
         @Override

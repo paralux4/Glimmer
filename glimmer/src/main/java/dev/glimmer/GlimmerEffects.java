@@ -6,11 +6,14 @@ import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -57,6 +60,14 @@ public final class GlimmerEffects {
     private static double lastSwing = 0;
     private static double stepDist = 0;
     private static boolean stepSide = false;
+    private static int lastSwingTick = -100;
+    private static final Map<Integer, Integer> recentHit = new HashMap<>();
+
+    // movement tracking (landing + teleport rings)
+    private static Level lastLevel = null;
+    private static double lx, ly, lz;
+    private static boolean wasGround = true;
+    private static double airMaxY = 0;
 
     // ------------------------------------------------------------------ colors
 
@@ -87,6 +98,14 @@ public final class GlimmerEffects {
         return (end && grad ? col2 : col) & 0xFFFFFF;
     }
 
+    private static int toWhite(int rgb, double amount) {
+        double t = Mth.clamp((float) amount, 0.0F, 1.0F);
+        int r = (int) Math.round(((rgb >> 16) & 255) * (1 - t) + 255 * t);
+        int g = (int) Math.round(((rgb >> 8) & 255) * (1 - t) + 255 * t);
+        int b = (int) Math.round((rgb & 255) * (1 - t) + 255 * t);
+        return (r << 16) | (g << 8) | b;
+    }
+
     // ------------------------------------------------------------------ spawning
 
     private static ParticleOptions vanilla(String name, int rgb, float size) {
@@ -106,8 +125,8 @@ public final class GlimmerEffects {
     }
 
     /**
-     * Spawns one particle (plus its soft halo) using a layer's look settings.
-     * baseLife is in ticks, friction is how fast its motion dies off.
+     * Spawns one particle using a layer's look and physics settings.
+     * baseLife is in ticks. friction <= 0 means "use the layer's air drag".
      */
     private static void emit(Level level, GlimmerConfig.Layer l, double x, double y, double z,
                              double dx, double dy, double dz, float colorOffset, float sizeMul,
@@ -125,17 +144,26 @@ public final class GlimmerEffects {
             s.dx = dx;
             s.dy = dy + l.rise;
             s.dz = dz;
-            s.friction = friction;
+            s.friction = friction > 0 ? friction : (float) l.drag;
             s.fade = (float) l.fade;
             s.spin = (float) l.spin;
+            s.gravity = (float) l.gravity;
+            s.bounce = (float) l.bounce;
+            s.collide = l.collide;
+            s.slide = (float) l.slide;
+            s.push = (float) l.push;
+            s.twinkle = (float) l.twinkle;
             GlimmerParticles.spawn(level, l.particle, x, y, z, s);
 
-            if (l.halo > 0.01 && !l.particle.equals("ring")) {
-                GlimmerParticles.Spec h = s.copy();
-                h.alphaMul = (float) l.halo;
-                h.size = size * (float) l.haloSize;
-                h.spin = 0.0F;
-                GlimmerParticles.spawn(level, "soft_glow", x, y, z, h);
+            // white-hot core: a smaller, brighter copy that moves with the particle
+            if (l.core > 0.01) {
+                GlimmerParticles.Spec core = s.copy();
+                core.size = size * 0.55F;
+                core.rgb = toWhite(rgb, 0.4 + 0.55 * l.core);
+                core.rgb2 = toWhite(rgb2, 0.4 + 0.55 * l.core);
+                core.alphaMul = 1.0F;
+                core.twinkle = 0.0F;
+                GlimmerParticles.spawn(level, l.particle, x, y, z, core);
             }
         } else {
             addVanilla(level, vanilla(l.particle, rgb, size), x, y, z, dx, dy + l.rise, dz);
@@ -154,16 +182,20 @@ public final class GlimmerEffects {
         boolean scaleMe = c.followScaleMe && ScaleMeCompat.loaded();
         double k = scaleMe ? ScaleMeCompat.playerScale() : 1.0;
 
+        boolean teleported = movement(mc, p, c, k);
+
         if (c.showInFirstPerson || !firstPerson) {
             if (c.aura.on) aura(p, c, k);
             if (c.orbit.on) orbit(p, c, k);
             if (c.trail.on) trail(p, c);
         }
-        if (c.foot.on) footsteps(p, c, k);
+        if (c.foot.on && !teleported) footsteps(p, c, k);
         if (c.weapon.on) weapon(p, c, k);
 
         if (c.swing.on && (!firstPerson || c.swingFirstPerson)) swing(p, c, k, firstPerson && scaleMe);
         else lastSwing = 0;
+
+        hitScan(mc, p, c);
     }
 
     private static void aura(Player p, GlimmerConfig c, double k) {
@@ -174,7 +206,7 @@ public final class GlimmerEffects {
             double r = c.auraRadius * k * (0.6 + rnd.nextDouble() * 0.4);
             double y = p.getY() + rnd.nextDouble() * p.getBbHeight() * k;
             emit(p.level(), c.aura, p.getX() + Math.cos(a) * r, y, p.getZ() + Math.sin(a) * r,
-                    0, 0.012 + rnd.nextDouble() * 0.012, 0, rnd.nextFloat() * 0.3F, 1.0F, 36, 0.995F);
+                    0, 0.012 + rnd.nextDouble() * 0.012, 0, rnd.nextFloat() * 0.3F, 1.0F, 36, -1F);
         }
     }
 
@@ -200,11 +232,75 @@ public final class GlimmerEffects {
                     p.getX() - v.x * t * 2 + (rnd.nextDouble() - 0.5) * 0.3,
                     p.getY() + 0.1 + rnd.nextDouble() * 0.2,
                     p.getZ() - v.z * t * 2 + (rnd.nextDouble() - 0.5) * 0.3,
-                    0, 0.01, 0, 0F, 1.0F, 22, 0.97F);
+                    0, 0.01, 0, 0F, 1.0F, 22, -1F);
         }
     }
 
-    /** A small expanding ring of glow on the ground each time you take a step. */
+    // ------------------------------------------------------------------ rings
+
+    /** One big ring of glow on the ground that expands outward from (cx, cy, cz). */
+    private static void ring(Level level, GlimmerConfig c, double cx, double cy, double cz,
+                             double radiusMul, double k) {
+        int n = Math.max(8, c.footPoints);
+        float fr = 0.84F;
+        double v0 = c.footRadius * radiusMul * k * (1.0 - fr);
+        for (int i = 0; i < n; i++) {
+            double a = Math.PI * 2 * i / n;
+            double cs = Math.cos(a), sn = Math.sin(a);
+            emit(level, c.foot, cx + cs * 0.1, cy + 0.03, cz + sn * 0.1,
+                    cs * v0, 0, sn * v0, i / (float) n * 0.4F, 1.0F, 18, fr);
+        }
+    }
+
+    /** Detects jump landings and teleports (like Aspect of the Void). Returns true on a teleport. */
+    private static boolean movement(Minecraft mc, Player p, GlimmerConfig c, double k) {
+        double x = p.getX(), y = p.getY(), z = p.getZ();
+        boolean ground = p.onGround();
+
+        if (lastLevel != mc.level) { // joined a world or changed dimension: just reset
+            lastLevel = mc.level;
+            lx = x; ly = y; lz = z;
+            wasGround = ground;
+            airMaxY = y;
+            return false;
+        }
+
+        double dx = x - lx, dy = y - ly, dz = z - lz;
+        double moved = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        boolean teleported = false;
+
+        if (c.foot.on && c.teleportRing && moved > c.teleportMin) {
+            teleported = true;
+            if (c.teleportDeparture) ring(p.level(), c, lx, ly, lz, 1.0, k);
+            ring(p.level(), c, x, y, z, c.landScale, k);
+            airMaxY = y;
+        } else if (c.foot.on) {
+            if (!ground) {
+                airMaxY = Math.max(airMaxY, y);
+            } else if (!wasGround) {
+                double fall = airMaxY - y;
+                if (c.landRing && fall >= c.landMinFall) {
+                    double scale = c.landScale * (1.0 + Math.min(fall, 8.0) * 0.08);
+                    ring(p.level(), c, x, y, z, scale, k);
+                }
+                airMaxY = y;
+            } else {
+                airMaxY = y;
+            }
+            if (c.jumpRing && wasGround && !ground && p.getDeltaMovement().y > 0.2) {
+                ring(p.level(), c, x, y, z, 0.8, k);
+            }
+        } else {
+            airMaxY = y;
+        }
+
+        lx = x; ly = y; lz = z;
+        wasGround = ground;
+        if (teleported) stepDist = 0;
+        return teleported;
+    }
+
+    /** A big ring on the ground every time you take a step. */
     private static void footsteps(Player p, GlimmerConfig c, double k) {
         Vec3 v = p.getDeltaMovement();
         double hs = Math.sqrt(v.horizontalDistanceSqr());
@@ -215,21 +311,11 @@ public final class GlimmerEffects {
         stepSide = !stepSide;
 
         double dirX = v.x / hs, dirZ = v.z / hs;
-        double sideX = -dirZ, sideZ = dirX;
         double side = (stepSide ? 1 : -1) * c.footSide * k;
-        double cx = p.getX() + sideX * side;
-        double cz = p.getZ() + sideZ * side;
-        double cy = p.getY() + 0.03;
-
-        int n = Math.max(4, c.footPoints);
-        float fr = 0.84F;
-        double v0 = c.footRadius * k * (1.0 - fr);
-        for (int i = 0; i < n; i++) {
-            double a = Math.PI * 2 * i / n;
-            emit(p.level(), c.foot, cx + Math.cos(a) * 0.04, cy, cz + Math.sin(a) * 0.04,
-                    Math.cos(a) * v0, 0, Math.sin(a) * v0, i / (float) n * 0.4F, 1.0F, 18, fr);
-        }
+        ring(p.level(), c, p.getX() - dirZ * side, p.getY(), p.getZ() + dirX * side, 1.0, k);
     }
+
+    // ------------------------------------------------------------------ weapon + swing
 
     /** Soft glow hugging the held item (a tunable stand-in for a weapon outline). */
     private static void weapon(Player p, GlimmerConfig c, double k) {
@@ -325,19 +411,46 @@ public final class GlimmerEffects {
         return new Vec3(ox + fx * fwdH + rx * side, oy + fwdV + up, oz + fz * fwdH + rz * side);
     }
 
-    /** Burst of particles on whatever the local player swings at. Cosmetic only. */
+    // ------------------------------------------------------------------ hits
+
+    /**
+     * Shows the hit effect on targets that really got hurt while you were swinging, up to
+     * "hitRange" blocks away. This is what lets long-range weapons (like the Dark Claymore)
+     * still show their hit effects even though the normal attack is not registered by the game.
+     */
+    private static void hitScan(Minecraft mc, Player p, GlimmerConfig c) {
+        if (p.getAttackAnim(1.0F) > 0) lastSwingTick = tick;
+        if (!c.hit.on || c.hitRange <= 0 || tick - lastSwingTick > 8) return;
+
+        double range = Math.min(5.0, c.hitRange);
+        AABB box = p.getBoundingBox().inflate(range);
+        for (Entity e : mc.level.getEntities(p, box, x -> true)) {
+            if (!(e instanceof LivingEntity le) || !le.isAlive()) continue;
+            if (le.hurtTime < 8) continue; // only entities that were hurt this very moment
+            if (p.distanceTo(e) > range + 1.0F) continue;
+            hitBurst(e);
+        }
+    }
+
+    /** Burst of falling, bouncing stars on a target you hit. Cosmetic only. */
     public static void hitBurst(Entity target) {
         GlimmerConfig c = GlimmerConfig.INSTANCE;
         if (!c.enabled || !c.hit.on) return;
+
+        int id = target.getId();
+        if (tick - recentHit.getOrDefault(id, -1000) < 8) return; // already played for this hit
+        recentHit.put(id, tick);
+        if (recentHit.size() > 64) recentHit.entrySet().removeIf(en -> tick - en.getValue() > 40);
+
         var rnd = target.level().getRandom();
         double cy = target.getY() + target.getBbHeight() * 0.5;
         double kk = GlimmerParticles.isCustom(c.hit.particle) ? 0.35 : 1.0;
         for (int i = 0; i < c.hitCount; i++) {
             double dx = (rnd.nextDouble() - 0.5) * 2 * c.hitSpread * 4 * kk;
-            double dy = (rnd.nextDouble() - 0.5) * 2 * c.hitSpread * 4 * kk;
+            double dy = (rnd.nextDouble() - 0.5) * 2 * c.hitSpread * 4 * kk + c.hitLift * (0.5 + rnd.nextDouble());
             double dz = (rnd.nextDouble() - 0.5) * 2 * c.hitSpread * 4 * kk;
             emit(target.level(), c.hit, target.getX(), cy, target.getZ(), dx, dy, dz,
-                    rnd.nextFloat() * 0.4F, 1.0F, 16, 0.86F);
+                    rnd.nextFloat() * 0.4F, 0.6F + rnd.nextFloat() * 0.8F, 44, -1F);
         }
     }
 

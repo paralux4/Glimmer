@@ -7,13 +7,13 @@ import net.fabricmc.loader.api.FabricLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/** All user-tweakable settings. Saved to config/glimmer-v3.json. */
+/** All user-tweakable settings. Saved to config/glimmer-v4.json. */
 public class GlimmerConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("glimmer-v3.json");
+    private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("glimmer-v4.json");
     public static GlimmerConfig INSTANCE = new GlimmerConfig();
 
-    /** Look settings shared by every effect layer. */
+    /** Look + physics settings shared by every effect layer. */
     public static class Layer {
         public boolean on = true;
         public String particle = "soft_glow";
@@ -24,19 +24,29 @@ public class GlimmerConfig {
         public int color2 = 0xFF55FF;
         public double size = 1.0;
         public double life = 1.0;
-        public double spin = 0.0;   // degrees per tick
-        public double rise = 0.0;   // vertical drift per tick
-        public double halo = 0.35;  // strength of the soft glow behind each particle
-        public double haloSize = 2.4;
-        public double fade = 1.5;   // fade-out curve
+        public double spin = 0.0;    // degrees per tick
+        public double rise = 0.0;    // starting upward drift
+        public double fade = 1.5;    // fade-out curve
+        // glow
+        public double core = 0.0;    // bright white-hot core (0 = off)
+        public double twinkle = 0.0; // brightness flicker
+        // physics
+        public double gravity = 0.0; // 0 = floats, 1 = falls like a normal particle
+        public double bounce = 0.5;  // how much speed is kept when it hits the ground
+        public boolean collide = false; // collide with blocks
+        public double slide = 0.85;  // sliding friction on the ground (lower = stops quicker)
+        public double drag = 0.96;   // air drag (1 = none)
+        public double push = 0.0;    // how strongly you kick it when you walk through it
 
         public Layer() {}
 
-        public Layer(String particle, double size, double spin, double halo) {
+        Layer(boolean on, String particle, double size, double life, double spin, double rise) {
+            this.on = on;
             this.particle = particle;
             this.size = size;
+            this.life = life;
             this.spin = spin;
-            this.halo = halo;
+            this.rise = rise;
         }
     }
 
@@ -47,10 +57,10 @@ public class GlimmerConfig {
     public boolean followScaleMe = true;
 
     // global color
-    public boolean rainbow = true;
-    public int color = 0x55FFFF;
+    public boolean rainbow = false;
+    public int color = 5625855;
     public boolean gradient = true;
-    public int color2 = 0xB44CFF;
+    public int color2 = 13235455;
     public double rainbowSpeed = 1.0;
 
     // menu
@@ -58,23 +68,36 @@ public class GlimmerConfig {
     public double uiOpacity = 0.88;
 
     // layers
-    public Layer aura = new Layer("soft_glow", 1.0, 0, 0.30);
-    public Layer orbit = new Layer("sparkle", 1.1, 4, 0.45);
-    public Layer trail = new Layer("soft_glow", 1.0, 0, 0.30);
-    public Layer swing = new Layer("soft_glow", 1.4, 0, 0.45);
-    public Layer hit = new Layer("sparkle", 1.2, 8, 0.45);
-    public Layer foot = new Layer("soft_glow", 0.8, 0, 0.35);
-    public Layer weapon = new Layer("soft_glow", 0.8, 0, 0.35);
+    public Layer aura = new Layer(false, "soft_glow", 1.0, 1.0, 0.0, 0.0);
+    public Layer orbit = new Layer(true, "soft_glow", 1.427947598253275, 1.0, 4.0, 0.0);
+    public Layer trail = new Layer(false, "sparkle", 1.0, 1.0, 0.0, 0.0);
+    public Layer swing = new Layer(true, "soft_glow", 1.4, 1.0, 0.0, 0.0);
+    public Layer hit = new Layer(true, "sparkle", 1.2, 1.0, 8.0, 0.0);
+    public Layer foot = new Layer(true, "dot", 0.49868995633187774, 1.9978165938864632, 12.183406113537117, 2.1834061135370814E-4);
+    public Layer weapon = new Layer(false, "soft_glow", 0.8, 1.0, 0.0, 0.0);
+
+    {
+        // falling stars: hit sparkles fall with gravity, bounce, slide and get kicked by you
+        hit.gravity = 0.9;
+        hit.bounce = 0.5;
+        hit.collide = true;
+        hit.slide = 0.8;
+        hit.drag = 0.96;
+        hit.push = 0.6;
+        hit.core = 0.6;
+        hit.twinkle = 0.25;
+        hit.fade = 1.2;
+    }
 
     // aura
     public double auraAmount = 2;
     public double auraRadius = 0.8;
 
     // orbit
-    public int orbitCount = 3;
-    public double orbitRadius = 0.9;
-    public double orbitSpeed = 8;
-    public double orbitHeight = 1.0;
+    public int orbitCount = 4;
+    public double orbitRadius = 1.1371179039301311;
+    public double orbitSpeed = 9.956331877729257;
+    public double orbitHeight = 0.3056768558951965;
 
     // movement trail
     public double trailAmount = 2;
@@ -84,18 +107,27 @@ public class GlimmerConfig {
     public double swingArc = 140;
     public double swingTilt = 35;
     public int swingSamples = 8;
-    public boolean swingFirstPerson = true;
+    public boolean swingFirstPerson = false;
     public boolean swingEmptyHand = true;
 
     // hit burst
     public int hitCount = 14;
     public double hitSpread = 0.15;
+    public double hitLift = 0.25;   // upward pop so stars arc and fall
+    public double hitRange = 4.0;   // see hit effects on targets up to this far away (max 5)
 
-    // footsteps
-    public double footInterval = 1.1;
-    public double footRadius = 0.5;
-    public int footPoints = 10;
-    public double footSide = 0.15;
+    // footstep ring (one big ring per step)
+    public double footInterval = 0.4;
+    public double footRadius = 1.0048034934497818;
+    public int footPoints = 48;
+    public double footSide = 0.20087336244541484;
+    public boolean landRing = true;
+    public double landMinFall = 0.8;
+    public double landScale = 1.5;
+    public boolean jumpRing = false;
+    public boolean teleportRing = true;
+    public boolean teleportDeparture = true;
+    public double teleportMin = 4.5;
 
     // weapon glow
     public double weaponAmount = 1.5;

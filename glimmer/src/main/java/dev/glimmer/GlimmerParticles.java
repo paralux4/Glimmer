@@ -3,6 +3,7 @@ package dev.glimmer;
 import net.fabricmc.fabric.api.client.particle.v1.FabricSpriteSet;
 import net.fabricmc.fabric.api.client.particle.v1.ParticleProviderRegistry;
 import net.fabricmc.fabric.api.particle.v1.FabricParticleTypes;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.particle.Particle;
 import net.minecraft.client.particle.ParticleProvider;
@@ -14,14 +15,17 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
  * Glimmer's own particles (soft glow, sparkle, ring, flare, star, dot).
- * They fade in, shrink, spin, change color over their life and always render fullbright.
+ * They fade in, shrink, spin, change color, twinkle, fall with gravity, bounce off blocks,
+ * slide on the ground, get kicked when you walk through them, and always render fullbright.
  * Local to your client only.
  */
 public final class GlimmerParticles {
@@ -30,22 +34,31 @@ public final class GlimmerParticles {
     public static final String[] NAMES = {"soft_glow", "sparkle", "ring", "flare", "star", "dot"};
     public static final Map<String, SimpleParticleType> TYPES = new LinkedHashMap<>();
 
-    /** How one particle should look. Filled in just before it is spawned. */
+    /** How one particle should look and move. Filled in just before it is spawned. */
     public static final class Spec {
         public int rgb = 0xFFFFFF;
         public int rgb2 = 0xFFFFFF;
         public float size = 1.0F;
         public float alphaMul = 1.0F;
         public float spin = 0.0F;      // degrees per tick
-        public float friction = 0.96F;
+        public float friction = 0.96F; // air drag
         public float fade = 1.5F;
         public int life = 20;
         public double dx, dy, dz;
+        // physics
+        public float gravity = 0.0F;
+        public float bounce = 0.5F;
+        public boolean collide = false;
+        public float slide = 0.85F;
+        public float push = 0.0F;
+        public float twinkle = 0.0F;
 
         public Spec copy() {
             Spec s = new Spec();
             s.rgb = rgb; s.rgb2 = rgb2; s.size = size; s.alphaMul = alphaMul; s.spin = spin;
             s.friction = friction; s.fade = fade; s.life = life; s.dx = dx; s.dy = dy; s.dz = dz;
+            s.gravity = gravity; s.bounce = bounce; s.collide = collide; s.slide = slide;
+            s.push = push; s.twinkle = twinkle;
             return s;
         }
     }
@@ -87,6 +100,8 @@ public final class GlimmerParticles {
         private final float fadeExp;
         private final float spinRad;
         private final float r1, g1, b1, r2, g2, b2;
+        private final float bounce, slide, push, twinkle, phase;
+        private final boolean bright;
 
         GlimmerParticle(ClientLevel level, double x, double y, double z, TextureAtlasSprite sprite, Spec s) {
             super(level, x, y, z, 0.0, 0.0, 0.0, sprite);
@@ -94,8 +109,8 @@ public final class GlimmerParticles {
             this.yd = s.dy;
             this.zd = s.dz;
             this.friction = s.friction;
-            this.gravity = 0.0F;
-            this.hasPhysics = false;
+            this.gravity = s.gravity;
+            this.hasPhysics = s.collide;
             this.lifetime = Math.max(2, s.life);
             this.age = 0;
             this.r1 = ((s.rgb >> 16) & 0xFF) / 255.0F;
@@ -112,6 +127,12 @@ public final class GlimmerParticles {
             this.alphaMul = s.alphaMul;
             this.fadeExp = Math.max(0.3F, s.fade);
             this.spinRad = (float) Math.toRadians(s.spin);
+            this.bounce = s.bounce;
+            this.slide = s.slide;
+            this.push = s.push;
+            this.twinkle = s.twinkle;
+            this.phase = this.random.nextFloat() * Mth.TWO_PI;
+            this.bright = GlimmerConfig.INSTANCE.glow;
             this.roll = this.random.nextFloat() * Mth.TWO_PI;
             this.oRoll = this.roll;
             this.alpha = 0.0F;
@@ -122,13 +143,46 @@ public final class GlimmerParticles {
             return Layer.TRANSLUCENT;
         }
 
+        /** Kick the particle away when the player walks or runs through it. */
+        private void kickFromPlayer() {
+            Player pl = Minecraft.getInstance().player;
+            if (pl == null) return;
+            double dx = this.x - pl.getX();
+            double dz = this.z - pl.getZ();
+            double dy = this.y - (pl.getY() + 0.5);
+            double d2 = dx * dx + dz * dz + dy * dy;
+            if (d2 > 1.0 || d2 < 1.0e-4) return;
+            double d = Math.sqrt(d2);
+            Vec3 v = pl.getDeltaMovement();
+            double speed = Math.sqrt(v.x * v.x + v.z * v.z);
+            double f = (1.0 - d) * (0.05 + speed * 1.4) * this.push;
+            this.xd += dx / d * f;
+            this.zd += dz / d * f;
+            this.yd += (1.0 - d) * 0.02 * this.push * (1.0 + speed * 6.0);
+        }
+
         @Override
         public void tick() {
+            if (this.push > 0.0F) kickFromPlayer();
             super.tick();
+
+            // ground contact: bounce while there is speed left, then rest and slide to a stop
+            if (this.hasPhysics && this.onGround) {
+                if (this.yd < -0.06 && this.bounce > 0.0F) {
+                    this.yd = -this.yd * this.bounce;
+                    this.onGround = false;
+                } else {
+                    this.yd = 0.0;
+                }
+                this.xd *= this.slide;
+                this.zd *= this.slide;
+            }
+
             float t = this.lifetime <= 0 ? 1.0F : (float) this.age / (float) this.lifetime;
             float fadeIn = Math.min(1.0F, t / 0.12F);
             float fadeOut = 1.0F - Mth.clamp((t - 0.25F) / 0.75F, 0.0F, 1.0F);
-            this.alpha = this.alphaMul * fadeIn * (float) Math.pow(fadeOut, this.fadeExp);
+            float flick = 1.0F - this.twinkle * 0.5F * (1.0F + (float) Math.sin(this.age * 0.85F + this.phase));
+            this.alpha = this.alphaMul * fadeIn * (float) Math.pow(fadeOut, this.fadeExp) * flick;
             this.rCol = Mth.lerp(t, r1, r2);
             this.gCol = Mth.lerp(t, g1, g2);
             this.bCol = Mth.lerp(t, b1, b2);
@@ -141,16 +195,17 @@ public final class GlimmerParticles {
         public float getQuadSize(float partialTick) {
             float t = Mth.clamp((this.age + partialTick) / Math.max(1, this.lifetime), 0.0F, 1.0F);
             float pop = Math.min(1.0F, t / 0.08F);
-            return this.baseSize * (0.35F + 0.65F * pop) * (1.0F - 0.75F * t * t);
+            return this.baseSize * (0.35F + 0.65F * pop) * (1.0F - 0.6F * t * t);
         }
 
-        // Always fullbright. Both names exist because the method was renamed between versions.
+        // Emissive: full brightness regardless of world light. Both names exist because the
+        // method was renamed between versions.
         public int getLightColor(float partialTick) {
-            return 15728880;
+            return this.bright ? 15728880 : 11534512;
         }
 
         public int getLightCoords(float partialTick) {
-            return 15728880;
+            return this.bright ? 15728880 : 11534512;
         }
     }
 }
