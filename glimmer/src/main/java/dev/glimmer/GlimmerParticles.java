@@ -36,7 +36,7 @@ import java.util.Map;
 public final class GlimmerParticles {
     private GlimmerParticles() {}
 
-    public static final String[] NAMES = {"soft_glow", "sparkle", "ring", "ring_thin", "ring_thick", "flare", "star", "dot", "bloom"};
+    public static final String[] NAMES = {"soft_glow", "sparkle", "ring", "ring_thin", "ring_thick", "flare", "star", "dot", "diamond", "bloom"};
     public static final Map<String, SimpleParticleType> TYPES = new LinkedHashMap<>();
 
     /** How one particle should look and move. Filled in just before it is spawned. */

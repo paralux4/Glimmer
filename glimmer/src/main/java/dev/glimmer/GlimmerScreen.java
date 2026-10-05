@@ -22,7 +22,7 @@ import java.util.function.Supplier;
  * smooth scrolling and a live color picker. Opened with /glimmer. Saves automatically.
  */
 public class GlimmerScreen extends Screen {
-    private static final String[] TABS = {"General", "Color", "Aura", "Orbit", "Trail", "Swing", "Hit", "Steps", "Weapon", "Outline", "Break"};
+    private static final String[] TABS = {"General", "Color", "Aura", "Orbit", "Trail", "Swing", "Hit", "Steps", "Weapon", "Outline", "Break", "Target", "View"};
     private static int tab = 0;
 
     private final List<Row> rows = new ArrayList<>();
@@ -209,6 +209,8 @@ public class GlimmerScreen extends Screen {
                 look(c.foot);
             }
             case 9 -> celTab(c);
+            case 11 -> targetTab(c);
+            case 12 -> viewTab(c);
             case 10 -> {
                 header("Block breaking");
                 slider("Amount", 0, 60, true, () -> c.breakCount, v -> c.breakCount = (int) v);
@@ -246,6 +248,7 @@ public class GlimmerScreen extends Screen {
         slider("Strength", 1, 6, true, () -> c.bloomLevel, v -> c.bloomLevel = (int) v);
         slider("Spread", 1, 3, true, () -> c.bloomRadius, v -> c.bloomRadius = (int) v);
         slider("Brightness needed", 1, 3, true, () -> c.bloomThreshold, v -> c.bloomThreshold = (int) v);
+        slider("Dark contrast filter", 0, 3, true, () -> c.colorGrade, v -> c.colorGrade = (int) v);
         header("ScaleMe");
         note(ScaleMeCompat.loaded() ? "ScaleMe detected." : "ScaleMe is not installed.");
         toggle("Follow ScaleMe swing + scale", () -> c.followScaleMe, v -> c.followScaleMe = v);
@@ -286,6 +289,7 @@ public class GlimmerScreen extends Screen {
         rows.add(new CycleRow("Particle", GlimmerEffects.particleNames(), () -> l.particle, v -> l.particle = v));
         slider("Size", 0.2, 4, false, () -> l.size, v -> l.size = v);
         slider("Opacity", 0.05, 1, false, () -> l.opacity, v -> l.opacity = v);
+        slider("Inherit your motion", 0, 2, false, () -> l.inherit, v -> l.inherit = v);
         slider("Lifetime", 0.3, 3, false, () -> l.life, v -> l.life = v);
         slider("Spin", -30, 30, false, () -> l.spin, v -> l.spin = v);
         slider("Float up/down", -0.05, 0.05, false, () -> l.rise, v -> l.rise = v);
@@ -333,6 +337,37 @@ public class GlimmerScreen extends Screen {
         }
     }
 
+    private void targetTab(GlimmerConfig c) {
+        GlimmerConfig.Target t = c.target;
+        header("Target marker");
+        note("Rings around the enemy you just hit. Hidden behind walls.");
+        toggle("Enabled", () -> t.on, v -> t.on = v);
+        rows.add(new CycleRow("Style", java.util.List.of("both", "circle", "quarter"), () -> t.style, v -> t.style = v));
+        slider("Radius", 0.3, 2.5, false, () -> t.radius, v -> t.radius = v);
+        slider("Height above feet", 0, 2.2, false, () -> t.height, v -> t.height = v);
+        slider("Line width", 0.004, 0.08, false, () -> t.width, v -> t.width = v);
+        toggle("Thicker when far away", () -> t.scaleWithDistance, v -> t.scaleWithDistance = v);
+        slider("Spin speed", 0.1, 4, false, () -> t.speed, v -> t.speed = v);
+        slider("Opacity", 0.05, 1, false, () -> t.opacity, v -> t.opacity = v);
+        slider("Glow", 0, 1, false, () -> t.glow, v -> t.glow = v);
+        slider("Smoothness", 16, 96, true, () -> t.segments, v -> t.segments = (int) v);
+        slider("Show for (seconds)", 0.5, 10, false, () -> t.holdSeconds, v -> t.holdSeconds = v);
+    }
+
+    private void viewTab(GlimmerConfig c) {
+        GlimmerConfig.View w = c.view;
+        header("Viewmodel (held item position)");
+        note("Moves, scales and tilts your hand and item. Cosmetic only.");
+        toggle("Enabled", () -> w.on, v -> w.on = v);
+        slider("Right / left", -1, 1, false, () -> w.x, v -> w.x = v);
+        slider("Up / down", -1, 1, false, () -> w.y, v -> w.y = v);
+        slider("Closer / farther", -1, 1, false, () -> w.z, v -> w.z = v);
+        slider("Scale", 0.3, 1.5, false, () -> w.scale, v -> w.scale = v);
+        slider("Pitch", -90, 90, false, () -> w.pitch, v -> w.pitch = v);
+        slider("Yaw", -90, 90, false, () -> w.yaw, v -> w.yaw = v);
+        slider("Roll", -90, 90, false, () -> w.roll, v -> w.roll = v);
+    }
+
     private void celTab(GlimmerConfig c) {
         GlimmerConfig.Cel cel = c.cel;
         header("Cel-shaded item");
@@ -343,6 +378,8 @@ public class GlimmerScreen extends Screen {
         toggle("Flat lighting", () -> cel.flatLight, v -> cel.flatLight = v);
         slider("Outline thickness (px)", 0, 4, false, () -> cel.thickness, v -> cel.thickness = v);
         slider("Glow", 0, 1, false, () -> cel.glow, v -> cel.glow = v);
+        slider("Glow pulse", 0, 1, false, () -> cel.pulse, v -> cel.pulse = v);
+        slider("Pulse speed", 0.2, 6, false, () -> cel.pulseSpeed, v -> cel.pulseSpeed = v);
         slider("Glow reach (px)", 0.3, 4, false, () -> cel.glowSize, v -> cel.glowSize = v);
         slider("Brightness", 0.5, 6, false, () -> cel.brightness, v -> cel.brightness = v);
         toggle("Flip outline side", () -> cel.flip, v -> cel.flip = v);

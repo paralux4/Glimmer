@@ -7,10 +7,10 @@ import net.fabricmc.loader.api.FabricLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/** All user-tweakable settings. Saved to config/glimmer-v8.json. */
+/** All user-tweakable settings. Saved to config/glimmer-v9.json. */
 public class GlimmerConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("glimmer-v8.json");
+    private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("glimmer-v9.json");
     public static GlimmerConfig INSTANCE = new GlimmerConfig();
 
     /** Look + physics settings shared by every effect layer. */
@@ -40,6 +40,7 @@ public class GlimmerConfig {
         // brightness / bloom (multiplied with the global values)
         public double brightness = 1.0;
         public double bloom = 1.0;
+        public double inherit = 0.0;   // how much of your own movement the particles pick up
         public double opacity = 1.0;   // overall transparency of this layer's particles
         // trail lines: thin lines that follow moving particles (like stars falling to the ground)
         public double tail = 0.0;          // length, 0 = off
@@ -105,8 +106,37 @@ public class GlimmerConfig {
         public int color = 0x55D7FF;
         public double brightness = 2.5;    // whitens the outline color
         public boolean flip = false;       // flip which side of the item the outline is drawn on
+        public double pulse = 0.25;        // how much the glow breathes in and out
+        public double pulseSpeed = 2.0;    // breaths per second
     }
     public Cel cel = new Cel();
+
+    /** Viewmodel: where, how big and at what angle the held item is drawn on your screen. */
+    public static class View {
+        public boolean on = false;
+        public double x = 0, y = 0, z = 0;          // screen offsets: right, up, away
+        public double scale = 1.0;
+        public double pitch = 0, yaw = 0, roll = 0; // degrees
+    }
+    public View view = new View();
+
+    /** Target marker: spinning rings around the enemy you just hit (only while you can see it). */
+    public static class Target {
+        public boolean on = true;
+        public String style = "both";   // circle, quarter, both
+        public double radius = 0.9;
+        public double height = 0.1;     // above the target's feet
+        public double width = 0.02;     // line thickness in blocks
+        public double speed = 1.0;
+        public double opacity = 0.9;
+        public double glow = 0.4;
+        public double holdSeconds = 3.0;
+        public boolean scaleWithDistance = true;
+        public int segments = 48;
+    }
+    public Target target = new Target();
+
+    public int colorGrade = 0;      // 0 = off, 1-3 dark contrast filter
 
     // menu
     public double uiSpeed = 1.0;
@@ -134,6 +164,8 @@ public class GlimmerConfig {
         hit.twinkle = 0.25;
         hit.fade = 1.2;
         hit.tail = 0.7;
+        hit.inherit = 0.6;
+        breakFx.inherit = 0.3;
         orbit.core = 0.6;
         swing.core = 0.5;
         // footstep ring: thin, faint and short-lived so it is not obvious

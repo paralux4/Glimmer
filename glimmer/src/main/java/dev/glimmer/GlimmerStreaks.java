@@ -90,6 +90,10 @@ public final class GlimmerStreaks {
     private static int tickCount = 0;
     private static long lastTickNanos = System.nanoTime();
 
+    public static long lastTickNanos() {
+        return lastTickNanos;
+    }
+
     public static Streak start(Style st, Head head) {
         Streak s = new Streak(st);
         s.head = head;
@@ -160,7 +164,7 @@ public final class GlimmerStreaks {
         }
     }
 
-    private static void ribbon(Object pose, com.mojang.blaze3d.vertex.VertexConsumer buf, float[] px, float[] py, float[] pz,
+    static void ribbon(Object pose, com.mojang.blaze3d.vertex.VertexConsumer buf, float[] px, float[] py, float[] pz,
                                int n, Style st, float width, float alphaMul, float whiten) {
         float[] ox = new float[n], oy = new float[n], oz = new float[n], wid = new float[n], al = new float[n];
         int[] col = new int[n];

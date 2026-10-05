@@ -348,8 +348,10 @@ public final class CelShade {
 
         int rgb = outlineRgb();
         for (int ring = count; ring >= 0; ring--) {
-            double a = ring == 0 ? 1.0 : cel.glow * (ring == 1 ? 0.55 : ring == 2 ? 0.32 : 0.16);
-            int cr = (int) (((rgb >> 16) & 255) * a), cg = (int) (((rgb >> 8) & 255) * a), cb = (int) ((rgb & 255) * a);
+            double pf = 1.0 - cel.pulse * 0.5 * (1.0 + Math.sin(System.nanoTime() / 1.0e9 * cel.pulseSpeed * 6.2831853));
+            double a = ring == 0 ? 1.0 : cel.glow * (ring == 1 ? 0.55 : ring == 2 ? 0.32 : 0.16) * pf;
+            double cs = ring == 0 ? (0.7 + 0.3 * pf) : a;
+            int cr = (int) (((rgb >> 16) & 255) * cs), cg = (int) (((rgb >> 8) & 255) * cs), cb = (int) ((rgb & 255) * cs);
             final int argb = ((int) Math.round(a * 255.0) << 24) | (cr << 16) | (cg << 8) | cb;
             final List<int[]> rects = rg.rects[ring];
             collector.submitCustomGeometry(ps, RenderTypes.debugQuads(), (pose, buf) -> {

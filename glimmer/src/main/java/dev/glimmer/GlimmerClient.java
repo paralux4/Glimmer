@@ -32,6 +32,7 @@ public class GlimmerClient implements ClientModInitializer {
         });
 
         LevelRenderEvents.BEFORE_TRANSLUCENT_TERRAIN.register(GlimmerStreaks::render);
+        LevelRenderEvents.BEFORE_TRANSLUCENT_TERRAIN.register(TargetRing::render);
 
         // Purely cosmetic: always PASS so the attack itself is untouched.
         AttackEntityCallback.EVENT.register((player, level, hand, entity, hit) -> {

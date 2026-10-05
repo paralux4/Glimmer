@@ -58,6 +58,10 @@ public final class GlimmerEffects {
     }
 
     private static int tick = 0;
+
+    public static int now() {
+        return tick;
+    }
     private static double lastSwing = 0;
     private static double stepDist = 0;
     private static boolean stepSide = false;
@@ -142,6 +146,15 @@ public final class GlimmerEffects {
                              double dx, double dy, double dz, float colorOffset, float sizeMul,
                              int baseLife, float friction, double grow) {
         GlimmerConfig c = GlimmerConfig.INSTANCE;
+        if (l.inherit > 0) { // particles pick up your own movement and slow down with the layer's drag
+            Player me = Minecraft.getInstance().player;
+            if (me != null) {
+                Vec3 mv = me.getDeltaMovement();
+                dx += mv.x * l.inherit;
+                dy += mv.y * 0.5 * l.inherit;
+                dz += mv.z * l.inherit;
+            }
+        }
         int rgb = layerColor(l, colorOffset, false);
         int rgb2 = layerColor(l, colorOffset, true);
         float size = (float) (l.size * sizeMul);
@@ -552,6 +565,7 @@ public final class GlimmerEffects {
         int id = target.getId();
         if (tick - recentHit.getOrDefault(id, -1000) < 8) return; // already played for this hit
         recentHit.put(id, tick);
+        TargetRing.set(target);
         if (recentHit.size() > 64) recentHit.entrySet().removeIf(en -> tick - en.getValue() > 40);
 
         var rnd = target.level().getRandom();

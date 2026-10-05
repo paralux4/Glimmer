@@ -26,3 +26,71 @@ java {
     sourceCompatibility = JavaVersion.VERSION_25
     targetCompatibility = JavaVersion.VERSION_25
 }
+
+// ---- screen bloom + dark filter chains are generated at build time (so they don't have to be uploaded as 219 files)
+// Writes every screen-bloom / dark-filter post-effect chain, so none of them have to be stored as files.
+def writeBloomChains = { File outDir ->
+    outDir.mkdirs()
+    def strengths = [0.3d, 0.6d, 1.0d, 1.5d, 2.2d, 3.0d]
+    def radii = [6.0d, 12.0d, 20.0d]
+    def thresholds = [0.55d, 0.72d, 0.88d]
+    def grades = [[1.0d, 1.0d, 0.0d], [0.85d, 1.08d, 0.5d], [0.7d, 1.16d, 0.8d], [0.55d, 1.25d, 1.0d]]
+    def screen = 'minecraft:core/screentriangle'
+
+    def uni = { String block, List pairs ->
+        def m = [:]
+        m[block] = pairs.collect { p -> [name: p[0], type: 'float', value: p[1]] }
+        return m
+    }
+    def gradeCfg = { int g ->
+        return uni('GradeConfig', [['Saturation', grades[g][0]], ['Contrast', grades[g][1]], ['Tint', grades[g][2]]])
+    }
+    def blur = { String from, String to, double dx, double dy, double radius ->
+        return [vertex_shader: screen, fragment_shader: 'minecraft:post/box_blur',
+                inputs: [[sampler_name: 'In', target: from, bilinear: true]], output: to,
+                uniforms: [BlurConfig: [[name: 'BlurDir', type: 'vec2', value: [dx, dy]],
+                                         [name: 'Radius', type: 'float', value: radius]]]]
+    }
+    def copyPass = [vertex_shader: screen, fragment_shader: 'glimmer:post/bloom_copy',
+                    inputs: [[sampler_name: 'In', target: 'swap']], output: 'minecraft:main']
+
+    for (int si = 0; si < strengths.size(); si++) {
+        for (int ri = 0; ri < radii.size(); ri++) {
+            for (int ti = 0; ti < thresholds.size(); ti++) {
+                for (int g = 0; g < 4; g++) {
+                    def bc = uni('BloomConfig', [['Threshold', thresholds[ti]], ['Softness', 0.2d], ['Strength', strengths[si]]])
+                    def r = radii[ri]
+                    def chain = [targets: [bright: [:], blur: [:], swap: [:]], passes: [
+                        [vertex_shader: screen, fragment_shader: 'glimmer:post/bloom_extract',
+                         inputs: [[sampler_name: 'In', target: 'minecraft:main']], output: 'bright', uniforms: bc],
+                        blur('bright', 'blur', 1.0d, 0.0d, r), blur('blur', 'bright', 0.0d, 1.0d, r),
+                        blur('bright', 'blur', 1.0d, 0.0d, r), blur('blur', 'bright', 0.0d, 1.0d, r),
+                        [vertex_shader: screen, fragment_shader: 'glimmer:post/bloom_combine',
+                         inputs: [[sampler_name: 'Scene', target: 'minecraft:main'],
+                                  [sampler_name: 'Bloom', target: 'bright', bilinear: true]],
+                         output: 'swap', uniforms: bc + gradeCfg(g)],
+                        copyPass]]
+                    new File(outDir, "bloom_s${si + 1}_r${ri + 1}_t${ti + 1}_g${g}.json").text = groovy.json.JsonOutput.toJson(chain)
+                }
+            }
+        }
+    }
+    for (int g = 1; g < 4; g++) {
+        def chain = [targets: [swap: [:]], passes: [
+            [vertex_shader: screen, fragment_shader: 'glimmer:post/grade',
+             inputs: [[sampler_name: 'In', target: 'minecraft:main']], output: 'swap', uniforms: gradeCfg(g)],
+            copyPass]]
+        new File(outDir, "grade_g${g}.json").text = groovy.json.JsonOutput.toJson(chain)
+    }
+}
+
+def bloomOut = layout.buildDirectory.dir("generated/bloom")
+def generateBloom = tasks.register("generateBloomChains") {
+    outputs.dir(bloomOut)
+    inputs.property("version", 1)
+    doLast {
+        writeBloomChains(bloomOut.get().dir("assets/glimmer/post_effect").asFile)
+    }
+}
+sourceSets.main.resources.srcDir(files(bloomOut).builtBy(generateBloom))
+tasks.named("processResources") { duplicatesStrategy = DuplicatesStrategy.EXCLUDE }

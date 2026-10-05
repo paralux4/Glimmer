@@ -28,7 +28,9 @@ public final class ScreenBloom {
         int s = Math.max(1, Math.min(6, c.bloomLevel));
         int r = Math.max(1, Math.min(3, c.bloomRadius));
         int t = Math.max(1, Math.min(3, c.bloomThreshold));
-        return Identifier.fromNamespaceAndPath("glimmer", "bloom_s" + s + "_r" + r + "_t" + t);
+        int g = Math.max(0, Math.min(3, c.colorGrade));
+        if (!c.screenBloom) return Identifier.fromNamespaceAndPath("glimmer", "grade_g" + g);
+        return Identifier.fromNamespaceAndPath("glimmer", "bloom_s" + s + "_r" + r + "_t" + t + "_g" + g);
     }
 
     private static boolean ours(Identifier id) {
@@ -55,7 +57,7 @@ public final class ScreenBloom {
         GlimmerConfig c = GlimmerConfig.INSTANCE;
         GameRenderer gr = mc.gameRenderer;
         Identifier cur = gr.currentPostEffect();
-        boolean want = c.enabled && c.screenBloom && failures < 3;
+        boolean want = c.enabled && (c.screenBloom || c.colorGrade > 0) && failures < 3;
 
         if (!want) {
             if (ours(cur)) gr.clearPostEffect();
