@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "glimmer",
+  "version": "${version}",
+  "name": "Glimmer",
+  "description": "Client-side cosmetic effects: glowing particles, swing trails, footsteps and an animated settings menu. Visual only, no gameplay advantage.",
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "dev.glimmer.GlimmerClient"
+    ]
+  },
+  "mixins": [
+    "glimmer.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.19.1",
+    "minecraft": ">=26.2-",
+    "java": ">=25",
+    "fabric-api": "*"
+  },
+  "suggests": {
+    "scaleme": "*"
+  }
+}
