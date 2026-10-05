@@ -186,9 +186,7 @@ public final class GlimmerEffects {
         }
         s.alphaMul *= (float) l.opacity;
         GlimmerParticles.Spec noTail = s.copy();
-        s.tailLife = l.tail > 0.01 ? (float) (3 + l.tail * 15) : 0.0F;
-        s.tailSize = (float) l.tailSize;
-        s.tailSteps = l.tailDensity;
+        s.tail = l.tail > 0.01 ? GlimmerStreaks.style(l, s.rgb, s.rgb2) : null;
         for (int i = 0; i < copies; i++) GlimmerParticles.spawn(level, l.particle, x, y, z, i == 0 ? s : noTail);
         if (extra > 0.05F) {
             GlimmerParticles.Spec e2 = noTail.copy();
@@ -204,7 +202,7 @@ public final class GlimmerEffects {
             core.rgb2 = toWhite(rgb2, 0.4 + 0.55 * l.core);
             core.alphaMul = (float) l.opacity;
             core.twinkle = 0.0F;
-            core.tailLife = 0.0F;
+            core.tail = null;
             double[] cp = away(x, y, z, -0.015);
             GlimmerParticles.spawn(level, l.particle, cp[0], cp[1], cp[2], core);
         }
@@ -215,7 +213,7 @@ public final class GlimmerEffects {
             GlimmerParticles.Spec bs = s.copy();
             bs.size = size * (float) c.bloomSize;
             bs.alphaMul = (float) (Math.min(0.9, 0.22 * bloom * Math.sqrt(Math.max(1.0, b))) * l.opacity);
-            bs.tailLife = 0.0F;
+            bs.tail = null;
             bs.rgb = toWhite(rgb, 0.15 + white);
             bs.rgb2 = toWhite(rgb2, 0.15 + white);
             bs.spin = 0.0F;

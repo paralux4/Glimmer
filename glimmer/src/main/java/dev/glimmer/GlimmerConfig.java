@@ -7,10 +7,10 @@ import net.fabricmc.loader.api.FabricLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/** All user-tweakable settings. Saved to config/glimmer-v7.json. */
+/** All user-tweakable settings. Saved to config/glimmer-v8.json. */
 public class GlimmerConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
-    private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("glimmer-v7.json");
+    private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("glimmer-v8.json");
     public static GlimmerConfig INSTANCE = new GlimmerConfig();
 
     /** Look + physics settings shared by every effect layer. */
@@ -41,10 +41,17 @@ public class GlimmerConfig {
         public double brightness = 1.0;
         public double bloom = 1.0;
         public double opacity = 1.0;   // overall transparency of this layer's particles
-        // tails: little lines that drag behind moving particles (e.g. stars falling to the ground)
-        public double tail = 0.0;      // 0 = off, 1 = long
-        public double tailSize = 0.5;  // thickness of the line
-        public int tailDensity = 2;    // dots per tick that make up the line
+        // trail lines: thin lines that follow moving particles (like stars falling to the ground)
+        public double tail = 0.0;          // length, 0 = off
+        public double tailWidth = 0.012;   // line thickness in blocks
+        public double tailTaper = 0.8;     // how much it thins toward the end (0 = same width, 1 = to a point)
+        public double tailFade = 1.2;      // how quickly it fades toward the end
+        public double tailGlow = 0.5;      // soft glow around the line
+        public double tailGlowWidth = 3.0; // how wide that glow is, in line widths
+        public double tailCore = 0.5;      // thin white-hot line in the middle
+        public double tailOpacity = 1.0;
+        public int tailDensity = 2;        // smoothness (points per tick)
+        public double tailMinSpeed = 0.02; // the particle must move this fast to draw a line
         public double fps = 0.0;     // animation FPS for this layer (0 = use the global value)
         public boolean flat = false; // lie flat on the ground instead of facing the camera
 
@@ -90,7 +97,7 @@ public class GlimmerConfig {
         public boolean firstPerson = true;
         public boolean thirdPerson = false;
         public boolean flatLight = true;   // ignore world lighting on the item (flat, even look)
-        public double thickness = 1.0;     // outline thickness in item pixels
+        public double thickness = 0.6;     // outline thickness in item pixels
         public double glow = 0.8;          // soft glow outside the outline
         public double glowSize = 1.0;      // how far each glow step reaches, in item pixels
         public boolean useGlobalColor = true;

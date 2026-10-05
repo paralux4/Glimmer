@@ -3,6 +3,7 @@ package dev.glimmer;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
 import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.minecraft.client.Minecraft;
@@ -26,8 +27,11 @@ public class GlimmerClient implements ClientModInitializer {
                 openScreen(mc, new GlimmerScreen());
             }
             GlimmerEffects.tick(mc);
+            GlimmerStreaks.tick();
             ScreenBloom.tick(mc);
         });
+
+        LevelRenderEvents.BEFORE_TRANSLUCENT_TERRAIN.register(GlimmerStreaks::render);
 
         // Purely cosmetic: always PASS so the attack itself is untouched.
         AttackEntityCallback.EVENT.register((player, level, hand, entity, hit) -> {

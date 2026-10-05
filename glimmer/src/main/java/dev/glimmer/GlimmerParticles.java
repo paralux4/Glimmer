@@ -60,9 +60,7 @@ public final class GlimmerParticles {
         public boolean flat = false;   // lie flat on the ground
         public double grow = 0.0;      // > 0: ring that expands to this radius (blocks)
         public float fps = 120.0F;     // animation frames per second
-        public float tailLife = 0.0F;  // > 0: drags a line behind it that lasts this many ticks
-        public float tailSize = 0.5F;
-        public int tailSteps = 2;
+        public GlimmerStreaks.Style tail = null; // trail line behind it (null = none)
 
         public Spec copy() {
             Spec s = new Spec();
@@ -70,7 +68,7 @@ public final class GlimmerParticles {
             s.friction = friction; s.fade = fade; s.life = life; s.dx = dx; s.dy = dy; s.dz = dz;
             s.gravity = gravity; s.bounce = bounce; s.collide = collide; s.slide = slide;
             s.push = push; s.twinkle = twinkle; s.flat = flat; s.grow = grow; s.fps = fps;
-            s.tailLife = tailLife; s.tailSize = tailSize; s.tailSteps = tailSteps;
+            s.tail = tail;
             return s;
         }
     }
@@ -118,8 +116,7 @@ public final class GlimmerParticles {
         private final float growHalf;   // final half-size of an expanding ring (0 = normal particle)
         private final Quaternionf flatRot = new Quaternionf();
         private final float fps;
-        private final float tailLife, tailSize;
-        private final int tailSteps;
+        private final GlimmerStreaks.Streak streak;
         private final float baseRoll;
 
         GlimmerParticle(ClientLevel level, double x, double y, double z, TextureAtlasSprite sprite, Spec s) {
@@ -154,9 +151,11 @@ public final class GlimmerParticles {
             this.bright = GlimmerConfig.INSTANCE.glow;
             this.flat = s.flat;
             this.fps = s.fps;
-            this.tailLife = s.tailLife;
-            this.tailSize = s.tailSize;
-            this.tailSteps = Math.max(1, s.tailSteps);
+            this.streak = s.tail == null ? null : GlimmerStreaks.start(s.tail, (out, pt) -> {
+                out[0] = this.xo + (this.x - this.xo) * pt;
+                out[1] = this.yo + (this.y - this.yo) * pt;
+                out[2] = this.zo + (this.z - this.zo) * pt;
+            });
             this.growHalf = s.grow > 0 ? (float) (s.grow / 0.68) : 0.0F;
             this.roll = this.random.nextFloat() * Mth.TWO_PI;
             this.oRoll = this.roll;
@@ -205,26 +204,10 @@ public final class GlimmerParticles {
             }
 
             applyVisual(this.age);
-            if (this.tailLife > 0.0F) dragTail();
-        }
-
-        /** Leaves a short fading line of small glows along the path the particle just moved. */
-        private void dragTail() {
-            double sp = this.xd * this.xd + this.yd * this.yd + this.zd * this.zd;
-            if (sp < 0.0004 || this.alpha < 0.05F) return;
-            Spec t = new Spec();
-            t.rgb = ((int) (this.rCol * 255.0F) << 16) | ((int) (this.gCol * 255.0F) << 8) | (int) (this.bCol * 255.0F);
-            t.rgb2 = t.rgb;
-            t.size = this.baseSize / 0.14F * this.tailSize;
-            t.life = Math.max(2, (int) this.tailLife);
-            t.alphaMul = this.alpha * 0.75F;
-            t.fade = 1.2F;
-            t.friction = 1.0F;
-            t.fps = this.fps;
-            for (int i = 1; i <= this.tailSteps; i++) {
-                double f = i / (double) this.tailSteps;
-                spawn(this.level, "soft_glow",
-                        this.xo + (this.x - this.xo) * f, this.yo + (this.y - this.yo) * f, this.zo + (this.z - this.zo) * f, t);
+            if (this.streak != null) {
+                double sp = this.xd * this.xd + this.yd * this.yd + this.zd * this.zd;
+                if (sp >= this.streak.minSpeedSq()) this.streak.push(this.x, this.y, this.z);
+                if (this.removed) this.streak.end();
             }
         }
 
