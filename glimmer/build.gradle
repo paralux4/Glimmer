@@ -29,7 +29,7 @@ java {
 
 // ---- screen bloom + dark filter chains are generated at build time (so they don't have to be uploaded as 219 files)
 // Writes every screen-bloom / dark-filter post-effect chain, so none of them have to be stored as files.
-def writeBloomChains = { File outDir ->
+def writeBloomChains = { outDir ->
     outDir.mkdirs()
     def strengths = [0.3d, 0.6d, 1.0d, 1.5d, 2.2d, 3.0d]
     def radii = [6.0d, 12.0d, 20.0d]
@@ -37,15 +37,15 @@ def writeBloomChains = { File outDir ->
     def grades = [[1.0d, 1.0d, 0.0d], [0.85d, 1.08d, 0.5d], [0.7d, 1.16d, 0.8d], [0.55d, 1.25d, 1.0d]]
     def screen = 'minecraft:core/screentriangle'
 
-    def uni = { String block, List pairs ->
+    def uni = { block, pairs ->
         def m = [:]
         m[block] = pairs.collect { p -> [name: p[0], type: 'float', value: p[1]] }
         return m
     }
-    def gradeCfg = { int g ->
+    def gradeCfg = { g ->
         return uni('GradeConfig', [['Saturation', grades[g][0]], ['Contrast', grades[g][1]], ['Tint', grades[g][2]]])
     }
-    def blur = { String from, String to, double dx, double dy, double radius ->
+    def blur = { from, to, dx, dy, radius ->
         return [vertex_shader: screen, fragment_shader: 'minecraft:post/box_blur',
                 inputs: [[sampler_name: 'In', target: from, bilinear: true]], output: to,
                 uniforms: [BlurConfig: [[name: 'BlurDir', type: 'vec2', value: [dx, dy]],
@@ -87,7 +87,7 @@ def writeBloomChains = { File outDir ->
 def bloomOut = layout.buildDirectory.dir("generated/bloom")
 def generateBloom = tasks.register("generateBloomChains") {
     outputs.dir(bloomOut)
-    inputs.property("version", 1)
+    inputs.property("version", 2)
     doLast {
         writeBloomChains(bloomOut.get().dir("assets/glimmer/post_effect").asFile)
     }
