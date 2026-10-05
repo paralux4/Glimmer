@@ -58,10 +58,11 @@ def writeBloomChains = { outDir ->
         for (int ri = 0; ri < radii.size(); ri++) {
             for (int ti = 0; ti < thresholds.size(); ti++) {
                 for (int g = 0; g < 4; g++) {
+                  for (int mode = 0; mode < 2; mode++) {
                     def bc = uni('BloomConfig', [['Threshold', thresholds[ti]], ['Softness', 0.2d], ['Strength', strengths[si]]])
                     def r = radii[ri]
                     def chain = [targets: [bright: [:], blur: [:], swap: [:]], passes: [
-                        [vertex_shader: screen, fragment_shader: 'glimmer:post/bloom_extract',
+                        [vertex_shader: screen, fragment_shader: (mode == 0 ? 'glimmer:post/bloom_extract' : 'glimmer:post/bloom_extract_all'),
                          inputs: [[sampler_name: 'In', target: 'minecraft:main']], output: 'bright', uniforms: bc],
                         blur('bright', 'blur', 1.0d, 0.0d, r), blur('blur', 'bright', 0.0d, 1.0d, r),
                         blur('bright', 'blur', 1.0d, 0.0d, r), blur('blur', 'bright', 0.0d, 1.0d, r),
@@ -70,7 +71,8 @@ def writeBloomChains = { outDir ->
                                   [sampler_name: 'Bloom', target: 'bright', bilinear: true]],
                          output: 'swap', uniforms: bc + gradeCfg(g)],
                         copyPass]]
-                    new File(outDir, "bloom_s${si + 1}_r${ri + 1}_t${ti + 1}_g${g}.json").text = groovy.json.JsonOutput.toJson(chain)
+                    new File(outDir, "bloom_s${si + 1}_r${ri + 1}_t${ti + 1}_g${g}_m${mode}.json").text = groovy.json.JsonOutput.toJson(chain)
+                  }
                 }
             }
         }
@@ -87,7 +89,7 @@ def writeBloomChains = { outDir ->
 def bloomOut = layout.buildDirectory.dir("generated/bloom")
 def generateBloom = tasks.register("generateBloomChains") {
     outputs.dir(bloomOut)
-    inputs.property("version", 2)
+    inputs.property("version", 3)
     doLast {
         writeBloomChains(bloomOut.get().dir("assets/glimmer/post_effect").asFile)
     }

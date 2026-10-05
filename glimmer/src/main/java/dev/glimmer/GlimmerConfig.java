@@ -87,6 +87,7 @@ public class GlimmerConfig {
     public double animFps = 120.0;   // how many animation frames per second particles use (20 = vanilla steps)
     // real screen bloom (post-processing): everything bright bleeds light
     public boolean screenBloom = true;
+    public boolean bloomNeonOnly = true; // only vivid effect colors and white-hot cores glow, not normal scenery
     public int bloomLevel = 4;       // 1-6 strength
     public int bloomRadius = 1;      // 1-3 how far the glow spreads
     public int bloomThreshold = 3;   // 1-3 how bright something must be to glow (1 = most things)

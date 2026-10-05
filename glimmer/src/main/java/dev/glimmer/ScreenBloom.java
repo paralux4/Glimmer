@@ -30,7 +30,7 @@ public final class ScreenBloom {
         int t = Math.max(1, Math.min(3, c.bloomThreshold));
         int g = Math.max(0, Math.min(3, c.colorGrade));
         if (!c.screenBloom) return Identifier.fromNamespaceAndPath("glimmer", "grade_g" + g);
-        return Identifier.fromNamespaceAndPath("glimmer", "bloom_s" + s + "_r" + r + "_t" + t + "_g" + g);
+        return Identifier.fromNamespaceAndPath("glimmer", "bloom_s" + s + "_r" + r + "_t" + t + "_g" + g + "_m" + (c.bloomNeonOnly ? 0 : 1));
     }
 
     private static boolean ours(Identifier id) {

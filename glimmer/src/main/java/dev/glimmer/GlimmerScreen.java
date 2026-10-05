@@ -245,6 +245,7 @@ public class GlimmerScreen extends Screen {
         header("Screen bloom");
         note(ScreenBloom.unavailable() ? "Screen bloom could not load on this version." : "Real glow: bright things bleed light.");
         toggle("Screen bloom", () -> c.screenBloom, v -> c.screenBloom = v);
+        toggle("Only neon effects glow", () -> c.bloomNeonOnly, v -> c.bloomNeonOnly = v);
         slider("Strength", 1, 6, true, () -> c.bloomLevel, v -> c.bloomLevel = (int) v);
         slider("Spread", 1, 3, true, () -> c.bloomRadius, v -> c.bloomRadius = (int) v);
         slider("Brightness needed", 1, 3, true, () -> c.bloomThreshold, v -> c.bloomThreshold = (int) v);

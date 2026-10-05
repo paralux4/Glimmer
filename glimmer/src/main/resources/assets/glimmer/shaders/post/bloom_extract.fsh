@@ -14,7 +14,11 @@ layout(location = 0) out vec4 fragColor;
 
 void main() {
     vec3 c = texture(InSampler, texCoord).rgb;
-    float l = dot(c, vec3(0.299, 0.587, 0.114));
-    float k = smoothstep(Threshold, Threshold + Softness, l);
-    fragColor = vec4(c * k, 1.0);
+    float mx = max(c.r, max(c.g, c.b));
+    float mn = min(c.r, min(c.g, c.b));
+    float sat = (mx - mn) / max(mx, 0.0001);
+    float bright = smoothstep(Threshold, Threshold + Softness, mx);
+    float neon = smoothstep(0.45, 0.75, sat);   // vivid effect colors
+    float hot = smoothstep(0.93, 1.0, mn);      // white-hot cores
+    fragColor = vec4(c * bright * max(neon, hot), 1.0);
 }
